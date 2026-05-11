@@ -98,4 +98,5 @@ absent from core or stubbed by the lazy import pattern.
 | `ENABLE_JELLYFIN/JENKINS/RIPPING` | `identity` | Which services appear in the auto-built services block |
 | `JENKINS_JOBS` | `identity` | Job names shown in Jenkins block |
 | `SYSTEMD_SERVICES` | `identity` | Systemd units shown in services block |
+| `BOT_ENVIRONMENT` | `config`, `identity`, `telemetry` | `staging` or `production` (default). Adds `[staging]` to startup message, staging note to system prompt, and tags all telemetry events with the environment. |
 | `OPENPROJECT_URL`, `OPENPROJECT_API_KEY` | `pm.openproject` | OpenProject connection |

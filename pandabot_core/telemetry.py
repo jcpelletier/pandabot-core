@@ -56,7 +56,10 @@ def ai_event(name: str, **props: str) -> None:
         "data": {"baseType": "EventData", "baseData": {
             "ver": 2,
             "name": name,
-            "properties": {k: str(v) for k, v in props.items()},
+            "properties": {
+                "environment": os.environ.get("BOT_ENVIRONMENT", "production"),
+                **{k: str(v) for k, v in props.items()},
+            },
         }},
     }]).encode()
 
@@ -94,7 +97,10 @@ def ai_trace(severity: str, message: str, **props: str) -> None:
             "ver": 2,
             "message": message,
             "severityLevel": level,
-            "properties": {k: str(v) for k, v in props.items()},
+            "properties": {
+                "environment": os.environ.get("BOT_ENVIRONMENT", "production"),
+                **{k: str(v) for k, v in props.items()},
+            },
         }},
     }]).encode()
 

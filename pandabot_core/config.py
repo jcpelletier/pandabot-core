@@ -107,6 +107,12 @@ class Config:
         """Absolute path to a database file inside data_dir."""
         return os.path.join(self.data_dir(), filename)
 
+    @property
+    def environment(self) -> str:
+        """Return 'staging' or 'production'. Controlled by BOT_ENVIRONMENT env var."""
+        val = os.environ.get("BOT_ENVIRONMENT", "production").strip().lower()
+        return val if val in ("staging", "production") else "production"
+
 
 # Module-level singleton — bots import and use this directly
 cfg = Config()

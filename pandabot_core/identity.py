@@ -45,7 +45,8 @@ def startup_message(version: int | str = "") -> str:
     name = bot_name()
     ver_str = f" v{version}" if version else ""
     prefix = f"{emoji} " if emoji else ""
-    return f"{prefix}**{name}{ver_str}** online"
+    env_tag = " [staging]" if cfg.environment == "staging" else ""
+    return f"{prefix}**{name}{ver_str}** online{env_tag}"
 
 
 def _services_block() -> str:
@@ -118,6 +119,11 @@ def build_system_prompt(
     parts = [
         f"You are {name}, a helpful assistant for a home Ubuntu Server machine.",
     ]
+    if cfg.environment == "staging":
+        parts.append(
+            "ENVIRONMENT: staging — this is a test instance. "
+            "Changes tested here have not been promoted to production."
+        )
     if llm_line:
         parts.append(llm_line)
     parts += [
