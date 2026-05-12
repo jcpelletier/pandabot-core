@@ -8,11 +8,41 @@ Providers expose three methods:
 Tool definitions stay in canonical Anthropic format (input_schema) as the single
 source of truth. The OpenAI-compat provider wraps them at format_tool_definitions time.
 Messages are always in canonical Anthropic format; providers translate internally.
+
+Model profiles
+--------------
+Multiple named profiles can be defined via env vars:
+
+  PANDABOT_PROFILE_HAIKU_TYPE=anthropic
+  PANDABOT_PROFILE_HAIKU_PRIMARY=claude-haiku-4-5
+  PANDABOT_PROFILE_HAIKU_UPGRADE=claude-sonnet-4-6
+
+  PANDABOT_PROFILE_DEEPSEEK_TYPE=openai_compat
+  PANDABOT_PROFILE_DEEPSEEK_URL=https://api.deepseek.com/v1
+  PANDABOT_PROFILE_DEEPSEEK_KEY=<key>
+  PANDABOT_PROFILE_DEEPSEEK_PRIMARY=deepseek-chat
+  PANDABOT_PROFILE_DEEPSEEK_UPGRADE=deepseek-reasoner
+
+  PANDABOT_PROFILE_GEMMA_TYPE=openai_compat
+  PANDABOT_PROFILE_GEMMA_URL=http://127.0.0.1:8081/v1
+  PANDABOT_PROFILE_GEMMA_KEY=no-key
+  PANDABOT_PROFILE_GEMMA_PRIMARY=gemma-4-2b-it
+
+  PANDABOT_DEFAULT_PROFILE=haiku   # which profile is active at startup
+
+The active profile is persisted to $PANDABOT_DATA_DIR/active_model.txt so it
+survives bot restarts. set_active_profile() / get_active_profile_name() are the
+public API for runtime switching.
+
+Backward compatibility: if no PANDABOT_PROFILE_*_TYPE vars are set, a single
+"default" profile is synthesised from the old LLM_PROVIDER / OPENAI_COMPAT_*
+env vars so existing deployments keep working without changes.
 """
 
 import json
 import logging
 import os
+import re as _re
 from dataclasses import dataclass, field
 
 log = logging.getLogger("panda-bot")
@@ -43,12 +73,16 @@ class NormalizedResponse:
 # ---------------------------------------------------------------------------
 
 class AnthropicProvider:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        primary_model: str | None = None,
+        upgrade_model: str | None = None,
+    ) -> None:
         import anthropic
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.primary_model = os.environ.get("ANTHROPIC_PRIMARY_MODEL", "claude-haiku-4-5")
-        self.upgrade_model = os.environ.get("ANTHROPIC_UPGRADE_MODEL", "claude-sonnet-4-5")
+        self.primary_model = primary_model or os.environ.get("ANTHROPIC_PRIMARY_MODEL", "claude-haiku-4-5")
+        self.upgrade_model = upgrade_model or os.environ.get("ANTHROPIC_UPGRADE_MODEL", "claude-sonnet-4-5")
 
     def format_tool_definitions(self, tool_defs: list[dict]) -> list[dict]:
         return tool_defs  # Anthropic format is the canonical source of truth
@@ -116,17 +150,23 @@ class AnthropicProvider:
 # ---------------------------------------------------------------------------
 
 class OpenAICompatProvider:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        primary_model: str | None = None,
+        upgrade_model: str | None = None,
+    ) -> None:
         from openai import OpenAI
-        api_key = os.environ["OPENAI_COMPAT_API_KEY"]
-        base_url = os.environ["OPENAI_COMPAT_BASE_URL"]
+        _api_key = api_key or os.environ["OPENAI_COMPAT_API_KEY"]
+        _base_url = base_url or os.environ["OPENAI_COMPAT_BASE_URL"]
         self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
+            api_key=_api_key,
+            base_url=_base_url,
             timeout=60.0,
         )
-        self.primary_model = os.environ["OPENAI_COMPAT_PRIMARY_MODEL"]
-        self.upgrade_model = os.environ.get("OPENAI_COMPAT_UPGRADE_MODEL", "")
+        self.primary_model = primary_model or os.environ["OPENAI_COMPAT_PRIMARY_MODEL"]
+        self.upgrade_model = upgrade_model or os.environ.get("OPENAI_COMPAT_UPGRADE_MODEL", "")
 
     def format_tool_definitions(self, tool_defs: list[dict]) -> list[dict]:
         """Wrap Anthropic-canonical tool defs into OpenAI function-call format."""
@@ -316,34 +356,171 @@ class OpenAICompatProvider:
 
 
 # ---------------------------------------------------------------------------
-# Factory — call get_provider() everywhere; instance is cached at module level
+# Multi-profile system
 # ---------------------------------------------------------------------------
 
-_provider: AnthropicProvider | OpenAICompatProvider | None = None
+@dataclass
+class ModelProfile:
+    name: str
+    provider_type: str          # "anthropic" or "openai_compat"
+    primary_model: str = ""
+    upgrade_model: str = ""
+    base_url: str = ""          # openai_compat only
+    api_key: str = ""           # openai_compat only
 
 
-def get_provider() -> AnthropicProvider | OpenAICompatProvider:
-    global _provider
-    if _provider is None:
-        provider_name = os.environ.get("LLM_PROVIDER", "anthropic")
-        if provider_name == "openai_compat":
-            _provider = OpenAICompatProvider()
-            log.info(
-                "LLM provider: openai_compat  base_url=%s  primary=%s  upgrade=%s",
-                os.environ.get("OPENAI_COMPAT_BASE_URL", "?"),
-                os.environ.get("OPENAI_COMPAT_PRIMARY_MODEL", "?"),
-                os.environ.get("OPENAI_COMPAT_UPGRADE_MODEL") or "none",
+def _load_profiles() -> dict[str, ModelProfile]:
+    """Build profile dict from PANDABOT_PROFILE_<NAME>_TYPE env vars.
+
+    Falls back to a single "default" profile synthesised from the old
+    LLM_PROVIDER / OPENAI_COMPAT_* vars when no PANDABOT_PROFILE_* vars exist.
+    """
+    profiles: dict[str, ModelProfile] = {}
+
+    for key in os.environ:
+        m = _re.match(r"^PANDABOT_PROFILE_([A-Z0-9_]+)_TYPE$", key)
+        if not m:
+            continue
+        raw = m.group(1)
+        name = raw.lower()
+        prefix = f"PANDABOT_PROFILE_{raw}_"
+        profiles[name] = ModelProfile(
+            name=name,
+            provider_type=os.environ[key].lower(),
+            primary_model=os.environ.get(f"{prefix}PRIMARY", ""),
+            upgrade_model=os.environ.get(f"{prefix}UPGRADE", ""),
+            base_url=os.environ.get(f"{prefix}URL", ""),
+            api_key=os.environ.get(f"{prefix}KEY", ""),
+        )
+
+    if not profiles:
+        # Backward-compat: synthesise from old env vars
+        old = os.environ.get("LLM_PROVIDER", "anthropic")
+        if old == "openai_compat":
+            profiles["default"] = ModelProfile(
+                name="default",
+                provider_type="openai_compat",
+                base_url=os.environ.get("OPENAI_COMPAT_BASE_URL", ""),
+                api_key=os.environ.get("OPENAI_COMPAT_API_KEY", ""),
+                primary_model=os.environ.get("OPENAI_COMPAT_PRIMARY_MODEL", ""),
+                upgrade_model=os.environ.get("OPENAI_COMPAT_UPGRADE_MODEL", ""),
             )
         else:
-            _provider = AnthropicProvider()
-            log.info(
-                "LLM provider: anthropic  primary=%s  upgrade=%s",
-                _provider.primary_model,
-                _provider.upgrade_model,
+            profiles["default"] = ModelProfile(
+                name="default",
+                provider_type="anthropic",
+                primary_model=os.environ.get("ANTHROPIC_PRIMARY_MODEL", "claude-haiku-4-5"),
+                upgrade_model=os.environ.get("ANTHROPIC_UPGRADE_MODEL", "claude-sonnet-4-5"),
             )
-    return _provider
+
+    return profiles
+
+
+def _active_profile_file() -> str:
+    data_dir = os.environ.get("PANDABOT_DATA_DIR", "")
+    return os.path.join(data_dir, "active_model.txt") if data_dir else ""
+
+
+# Module-level state — lazily initialised
+_profiles: dict[str, ModelProfile] = {}
+_providers: dict[str, AnthropicProvider | OpenAICompatProvider] = {}
+_active_profile_cache: str | None = None
+
+
+def _ensure_profiles() -> None:
+    global _profiles
+    if not _profiles:
+        _profiles = _load_profiles()
+
+
+def get_available_profiles() -> list[str]:
+    """Return all defined profile names."""
+    _ensure_profiles()
+    return list(_profiles.keys())
+
+
+def get_active_profile_name() -> str:
+    """Return the name of the currently active profile."""
+    global _active_profile_cache
+    _ensure_profiles()
+
+    if _active_profile_cache and _active_profile_cache in _profiles:
+        return _active_profile_cache
+
+    # Try persisted file
+    f = _active_profile_file()
+    if f:
+        try:
+            with open(f) as fh:
+                name = fh.read().strip()
+                if name in _profiles:
+                    _active_profile_cache = name
+                    return name
+        except FileNotFoundError:
+            pass
+
+    # Env default or first profile
+    default = os.environ.get("PANDABOT_DEFAULT_PROFILE", "")
+    if default and default in _profiles:
+        _active_profile_cache = default
+        return default
+
+    first = next(iter(_profiles))
+    _active_profile_cache = first
+    return first
+
+
+def set_active_profile(name: str) -> None:
+    """Switch the active profile at runtime and persist the choice."""
+    global _active_profile_cache
+    _ensure_profiles()
+    if name not in _profiles:
+        raise ValueError(f"Unknown profile {name!r}. Available: {list(_profiles)}")
+    _active_profile_cache = name
+    f = _active_profile_file()
+    if f:
+        try:
+            with open(f, "w") as fh:
+                fh.write(name)
+        except Exception as e:
+            log.warning("Could not persist active profile to %s: %s", f, e)
+    log.info("Active model profile → %r", name)
+
+
+def _make_provider(profile: ModelProfile) -> AnthropicProvider | OpenAICompatProvider:
+    if profile.provider_type == "openai_compat":
+        return OpenAICompatProvider(
+            base_url=profile.base_url or None,
+            api_key=profile.api_key or None,
+            primary_model=profile.primary_model or None,
+            upgrade_model=profile.upgrade_model or None,
+        )
+    return AnthropicProvider(
+        primary_model=profile.primary_model or None,
+        upgrade_model=profile.upgrade_model or None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public factory — call get_provider() everywhere
+# ---------------------------------------------------------------------------
+
+def get_provider() -> AnthropicProvider | OpenAICompatProvider:
+    """Return the provider for the currently active profile (cached per profile)."""
+    _ensure_profiles()
+    name = get_active_profile_name()
+    if name not in _providers:
+        profile = _profiles[name]
+        _providers[name] = _make_provider(profile)
+        log.info(
+            "Created provider for profile %r  type=%s  primary=%s  upgrade=%s",
+            name, profile.provider_type, profile.primary_model, profile.upgrade_model or "none",
+        )
+    return _providers[name]
 
 
 def get_provider_name() -> str:
-    """Return the LLM_PROVIDER env var value (default 'anthropic')."""
-    return os.environ.get("LLM_PROVIDER", "anthropic")
+    """Return the provider type string for the active profile ('anthropic' or 'openai_compat')."""
+    _ensure_profiles()
+    name = get_active_profile_name()
+    return _profiles[name].provider_type if name in _profiles else "anthropic"
