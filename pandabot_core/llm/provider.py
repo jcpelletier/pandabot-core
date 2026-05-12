@@ -288,11 +288,31 @@ class OpenAICompatProvider:
             max_tokens=max_tokens,
             messages=messages,
         )
-        return (
-            response.choices[0].message.content or "",
-            response.usage.prompt_tokens,
-            response.usage.completion_tokens,
-        )
+        msg = response.choices[0].message
+        text = msg.content or ""
+        if not text:
+            # Some DeepSeek reasoning models return the answer only in reasoning_content
+            # when content is empty. Fall back so callers don't silently receive "".
+            reasoning = getattr(msg, "reasoning_content", None) or ""
+            if reasoning:
+                log.warning(
+                    "complete_simple: content empty, falling back to reasoning_content "
+                    "(%d chars). finish_reason=%s model=%s",
+                    len(reasoning),
+                    response.choices[0].finish_reason,
+                    model,
+                )
+                text = reasoning
+            else:
+                log.warning(
+                    "complete_simple: both content and reasoning_content empty. "
+                    "finish_reason=%s model=%s input_tokens=%d output_tokens=%d",
+                    response.choices[0].finish_reason,
+                    model,
+                    response.usage.prompt_tokens,
+                    response.usage.completion_tokens,
+                )
+        return (text, response.usage.prompt_tokens, response.usage.completion_tokens)
 
 
 # ---------------------------------------------------------------------------
