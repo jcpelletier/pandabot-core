@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ __all__ = [
     "split_message",
     "send_with_retry",
     "build_history",
+    "announce_startup",
     "ConfirmationManager",
     "WebhookServer",
 ]
@@ -160,6 +162,57 @@ async def build_history(
         merged.pop(0)
 
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Startup announcement
+# ---------------------------------------------------------------------------
+
+def _read_version(bot_dir: str) -> int | str:
+    path = os.path.join(bot_dir, "VERSION")
+    try:
+        return int(open(path).read().strip())
+    except (FileNotFoundError, ValueError):
+        return ""
+
+
+def _read_changelog_entry(bot_dir: str, version: int | str) -> str:
+    """Return bullet lines for *version* from CHANGELOG.md in bot_dir, or ''."""
+    if not version:
+        return ""
+    path = os.path.join(bot_dir, "CHANGELOG.md")
+    try:
+        lines = open(path).readlines()
+    except FileNotFoundError:
+        return ""
+    collecting = False
+    out: list[str] = []
+    for line in lines:
+        if line.startswith(f"## v{version}"):
+            collecting = True
+            continue
+        if collecting:
+            if line.startswith("## "):
+                break
+            out.append(line.rstrip())
+    return "\n".join(l for l in out if l).strip()
+
+
+async def announce_startup(
+    channel: "discord.abc.Messageable",
+    bot_dir: str,
+    extra: str = "",
+) -> None:
+    """Post startup message (version + changelog entry + extra) to channel."""
+    from pandabot_core.identity import startup_message
+    version = _read_version(bot_dir)
+    msg = startup_message(version)
+    entry = _read_changelog_entry(bot_dir, version)
+    if entry:
+        msg += f"\n{entry}"
+    if extra:
+        msg += f"\n{extra}"
+    await send_with_retry(channel, msg)
 
 
 # ---------------------------------------------------------------------------
