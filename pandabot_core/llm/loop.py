@@ -50,6 +50,7 @@ def run_claude_loop(
     channel_id: int | None = None,
     conversation_id: str | None = None,
     on_confirm: Callable[[int, str, dict], None] | None = None,
+    extra_confirm_tools: "set[str] | None" = None,
 ) -> str:
     """
     Synchronous agentic loop. Runs LLM → tool → LLM until end_turn or tool limit.
@@ -165,10 +166,11 @@ def run_claude_loop(
                 log.debug("Tool result (%s): %.300s", block.name, result)
 
                 # Pending-confirmation side-effect
+                _all_confirm = _CONFIRM_TOOLS | (extra_confirm_tools or set())
                 if (
                     on_confirm is not None
                     and channel_id is not None
-                    and block.name in _CONFIRM_TOOLS
+                    and block.name in _all_confirm
                     and not block.input.get("confirmed", False)
                     and ("Reply **yes** to confirm" in result or "warning" in result.lower())
                 ):
