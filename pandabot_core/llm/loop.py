@@ -112,6 +112,16 @@ def run_claude_loop(
                         response_ms=str(int((_time.monotonic() - t0) * 1000)),
                     )
                     return block.text
+            # Thinking models (e.g. Gemma) may return only reasoning_content with no
+            # text block when the context window is tight. Fall back so callers don't
+            # silently receive "(no text response)".
+            for block in response.content:
+                if block.type == "reasoning_content" and block.text:
+                    log.warning(
+                        "run_claude_loop: no text block — falling back to reasoning_content (%d chars)",
+                        len(block.text),
+                    )
+                    return block.text
             return "(no text response)"
 
         if response.stop_reason == "tool_use":
