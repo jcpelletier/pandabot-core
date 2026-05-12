@@ -524,3 +524,19 @@ def get_provider_name() -> str:
     _ensure_profiles()
     name = get_active_profile_name()
     return _profiles[name].provider_type if name in _profiles else "anthropic"
+
+
+def get_active_model_label() -> str:
+    """Return a short display label for the active model, suitable for startup messages.
+
+    Named profiles return the profile name (e.g. 'haiku', 'gemma').
+    Backward-compat 'default' profiles return the primary model string instead.
+    """
+    _ensure_profiles()
+    name = get_active_profile_name()
+    profile = _profiles.get(name)
+    if not profile:
+        return name
+    if name == "default":
+        return profile.primary_model or name
+    return name

@@ -205,8 +205,12 @@ async def announce_startup(
 ) -> None:
     """Post startup message (version + changelog entry + extra) to channel."""
     from pandabot_core.identity import startup_message
+    from pandabot_core.llm.provider import get_active_model_label
     version = _read_version(bot_dir)
     msg = startup_message(version)
+    label = get_active_model_label()
+    if label:
+        msg += f" — powered by {label}"
     entry = _read_changelog_entry(bot_dir, version)
     if entry:
         msg += f"\n{entry}"
