@@ -34,7 +34,9 @@ def _db() -> str:
     return cfg.db_path("scheduler.db")
 
 
-def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+def cost_usd(model: str, input_tokens: int, output_tokens: int, provider: str | None = None) -> float:
+    if provider == "openai_compat" and model not in _PRICING:
+        return 0.0
     inp_price, out_price = _PRICING.get(model, _DEFAULT_PRICING)
     return (input_tokens * inp_price + output_tokens * out_price) / 1_000_000
 
@@ -73,7 +75,7 @@ def log_call(
     provider: str = "anthropic",
 ) -> None:
     """Record one API call. Never raises."""
-    cost = cost_usd(model, input_tokens, output_tokens)
+    cost = cost_usd(model, input_tokens, output_tokens, provider=provider)
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         with sqlite3.connect(_db()) as conn:

@@ -99,7 +99,7 @@ def run_claude_loop(
             "LLM stop_reason=%s model=%s in=%d out=%d cost=$%.5f",
             response.stop_reason, response.model,
             response.input_tokens, response.output_tokens,
-            _usage.cost_usd(response.model, response.input_tokens, response.output_tokens),
+            _usage.cost_usd(response.model, response.input_tokens, response.output_tokens, provider=provider_name),
         )
 
         if response.stop_reason == "end_turn":
