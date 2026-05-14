@@ -316,7 +316,7 @@ def make_model_switch_cog(aliases: dict[str, str] | None = None):
     """Create a discord.ext.commands.Cog that provides !model switching commands.
 
     Commands registered: !deepseek (alias !ds), !haiku (alias !claude),
-    !gemma (alias !local), !model (status).
+    !gemma (alias !local), !model? (status).
 
     aliases maps user-facing command names to profile names. Defaults to
     {"deepseek": "deepseek", "haiku": "haiku", "gemma": "gemma"} but can be
@@ -367,7 +367,7 @@ def make_model_switch_cog(aliases: dict[str, str] | None = None):
             """Switch the LLM to local Gemma."""
             await self._switch(ctx, "gemma")
 
-        @_commands.command(name="model")
+        @_commands.command(name="model?")
         async def cmd_model(self, ctx: _commands.Context) -> None:
             """Show the currently active LLM profile and available options."""
             name = get_active_profile_name()
