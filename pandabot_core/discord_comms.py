@@ -41,6 +41,7 @@ __all__ = [
     "WebhookServer",
     "model_switch_banner",
     "make_model_switch_cog",
+    "make_help_cog",
 ]
 
 DISCORD_MSG_LIMIT = 1900  # leave headroom below Discord's 2000-char limit
@@ -379,3 +380,26 @@ def make_model_switch_cog(aliases: dict[str, str] | None = None):
             )
 
     return _ModelSwitchCog()
+
+
+def make_help_cog():
+    """Create a discord.ext.commands.Cog that provides !commands (list all !commands).
+
+    Introspects ctx.bot.commands at call time, so it automatically includes both
+    core commands (model switching) and any bot-specific commands added by the caller.
+    """
+    from discord.ext import commands as _commands
+
+    class _HelpCog(_commands.Cog, name="help"):
+
+        @_commands.command(name="commands", aliases=["help"])
+        async def cmd_commands(self, ctx: _commands.Context) -> None:
+            """List all available !commands."""
+            lines = []
+            for cmd in sorted(ctx.bot.commands, key=lambda c: c.name):
+                aliases = f"  (also: {', '.join('!' + a for a in sorted(cmd.aliases))})" if cmd.aliases else ""
+                desc = cmd.help or cmd.brief or ""
+                lines.append(f"!{cmd.name}{aliases}" + (f" — {desc}" if desc else ""))
+            await ctx.send("```\n" + "\n".join(lines) + "\n```")
+
+    return _HelpCog()
