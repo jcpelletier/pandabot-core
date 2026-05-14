@@ -21,6 +21,7 @@ anti-patterns in discord.py:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import os
 from typing import TYPE_CHECKING, Any, Callable
@@ -38,6 +39,9 @@ __all__ = [
     "announce_startup",
     "ConfirmationManager",
     "WebhookServer",
+    "model_switch_banner",
+    "make_model_switch_cog",
+    "make_help_cog",
 ]
 
 DISCORD_MSG_LIMIT = 1900  # leave headroom below Discord's 2000-char limit
@@ -291,3 +295,111 @@ class WebhookServer:
         if not self.secret:
             return True
         return received == self.secret
+
+
+# ---------------------------------------------------------------------------
+# LLM model switching — !commands + confirmation banner
+# ---------------------------------------------------------------------------
+
+def model_switch_banner(profile: str, model: str) -> str:
+    """Return the fixed-format confirmation block shown after a successful model switch.
+
+    The code-block format with the exact configured model ID and a current timestamp
+    is unlikely to be reproduced by a hallucinating LLM, making it easy to distinguish
+    a real switch from a model that only claims to have switched.
+    """
+    now = datetime.datetime.now().strftime("%H:%M:%S")
+    return f"```\n[MODEL SWITCH]\nprofile : {profile}\nmodel   : {model}\ntime    : {now}\n```"
+
+
+def make_model_switch_cog(aliases: dict[str, str] | None = None):
+    """Create a discord.ext.commands.Cog that provides !model switching commands.
+
+    Commands registered: !deepseek (alias !ds), !haiku (alias !claude),
+    !gemma (alias !local), !model? (status).
+
+    aliases maps user-facing command names to profile names. Defaults to
+    {"deepseek": "deepseek", "haiku": "haiku", "gemma": "gemma"} but can be
+    overridden via env vars (DEEPSEEK_PROFILE_NAME, HAIKU_PROFILE_NAME,
+    LOCAL_LLM_PROFILE_NAME) or by passing an explicit dict.
+
+    The cog is imported lazily so this module can be imported without discord
+    installed (tests still work).
+    """
+    from discord.ext import commands as _commands
+    from pandabot_core.llm.provider import (
+        get_available_profiles, set_active_profile,
+        get_active_profile_name, get_provider,
+    )
+
+    _aliases: dict[str, str] = aliases or {
+        "deepseek": os.environ.get("DEEPSEEK_PROFILE_NAME", "deepseek"),
+        "haiku":    os.environ.get("HAIKU_PROFILE_NAME",    "haiku"),
+        "gemma":    os.environ.get("LOCAL_LLM_PROFILE_NAME", "gemma"),
+    }
+
+    class _ModelSwitchCog(_commands.Cog, name="model_switch"):
+
+        async def _switch(self, ctx: _commands.Context, alias: str) -> None:
+            target = _aliases.get(alias.lower().strip(), alias.lower().strip())
+            available = get_available_profiles()
+            if target not in available:
+                await ctx.send(
+                    f"Unknown profile `{alias}`. Available: {', '.join(available)}"
+                )
+                return
+            set_active_profile(target)
+            provider = get_provider()
+            await ctx.send(model_switch_banner(target, provider.primary_model))
+
+        @_commands.command(name="deepseek", aliases=["ds"])
+        async def cmd_deepseek(self, ctx: _commands.Context) -> None:
+            """Switch the LLM to DeepSeek."""
+            await self._switch(ctx, "deepseek")
+
+        @_commands.command(name="haiku", aliases=["claude"])
+        async def cmd_haiku(self, ctx: _commands.Context) -> None:
+            """Switch the LLM to Claude Haiku."""
+            await self._switch(ctx, "haiku")
+
+        @_commands.command(name="gemma", aliases=["local"])
+        async def cmd_gemma(self, ctx: _commands.Context) -> None:
+            """Switch the LLM to local Gemma."""
+            await self._switch(ctx, "gemma")
+
+        @_commands.command(name="model?")
+        async def cmd_model(self, ctx: _commands.Context) -> None:
+            """Show the currently active LLM profile and available options."""
+            name = get_active_profile_name()
+            provider = get_provider()
+            available = get_available_profiles()
+            await ctx.send(
+                f"```\n[MODEL STATUS]\nprofile : {name}\n"
+                f"model   : {provider.primary_model}\n"
+                f"available: {', '.join(available)}\n```"
+            )
+
+    return _ModelSwitchCog()
+
+
+def make_help_cog():
+    """Create a discord.ext.commands.Cog that provides !commands (list all !commands).
+
+    Introspects ctx.bot.commands at call time, so it automatically includes both
+    core commands (model switching) and any bot-specific commands added by the caller.
+    """
+    from discord.ext import commands as _commands
+
+    class _HelpCog(_commands.Cog, name="help"):
+
+        @_commands.command(name="commands?", aliases=["help?"])
+        async def cmd_commands(self, ctx: _commands.Context) -> None:
+            """List all available !commands."""
+            lines = []
+            for cmd in sorted(ctx.bot.commands, key=lambda c: c.name):
+                aliases = f"  (also: {', '.join('!' + a for a in sorted(cmd.aliases))})" if cmd.aliases else ""
+                desc = cmd.help or cmd.brief or ""
+                lines.append(f"!{cmd.name}{aliases}" + (f" — {desc}" if desc else ""))
+            await ctx.send("```\n" + "\n".join(lines) + "\n```")
+
+    return _HelpCog()
