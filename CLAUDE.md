@@ -3,7 +3,7 @@
 Shared infrastructure package for all PandaBot deployments.
 GitHub: `jcpelletier/pandabot-core` (private)
 Local path: `C:\Users\genes\Downloads\PandaMigration\pandabot-core`
-Server path: `/opt/pandabot-core/` (bare git clone, on `PYTHONPATH` for both bots)
+Server paths: `/opt/pandabot-core/` (main, production) · `/opt/pandabot-core-staging/` (staging)
 
 ## What this repo is
 
@@ -46,20 +46,44 @@ deployed by `git pull` on the server — both bots restart to pick them up.
 stabilises. Future migration path: add `jcpelletier/pandabot-core` as a git dependency in
 each bot's `requirements.txt` and switch to `pip install -e`.
 
+## Branch strategy
+
+pandabot-core follows the same staging→main flow as Pandabot:
+
+| Branch | Server path | Used by |
+|---|---|---|
+| `staging` | `/opt/pandabot-core-staging/` | `discord-bot-staging` (staging Pandabot) |
+| `main` | `/opt/pandabot-core/` | `discord-bot` (production) + `pandaqa` |
+
+**Jules targets `staging` for pandabot-core PRs** — same as Pandabot. After Jules merges
+a core staging PR, Pandabot-Dev automatically pulls `/opt/pandabot-core-staging` and restarts
+`discord-bot-staging`, so staging Pandabot immediately reflects the core change.
+
+Production promotion is done by Pandabot-Dev with `include_core=true` — it merges
+`staging → main` in core, pulls on the server, and restarts production bots before
+promoting Pandabot itself.
+
 ## Deploying changes
 
+**Staging (Jules merges automatically → bot deploys):**
 ```bash
-# 1. Push from local repo
-cd "C:\Users\genes\Downloads\PandaMigration\pandabot-core"
-git push
-
-# 2. Pull on server and restart whichever bots are affected
+# Jules creates a PR against staging; Pandabot-Dev merges and then auto-runs:
 wsl ssh -i ~/.ssh/id_ed25519 genesis@192.168.1.100 \
-  "sudo git -C /opt/pandabot-core pull origin main && sudo systemctl restart discord-bot pandaqa"
+  "sudo git -C /opt/pandabot-core-staging pull origin staging && sudo systemctl restart discord-bot-staging"
 ```
 
-If only one bot is affected by the change, restart only that bot. Both bots share the same
-library path so a pull always affects both at runtime.
+**Production (via Pandabot-Dev "promote to production, include core"):**
+```bash
+# Pandabot-Dev runs these steps internally when include_core=true:
+wsl ssh -i ~/.ssh/id_ed25519 genesis@192.168.1.100 \
+  "sudo git -C /opt/pandabot-core fetch origin && \
+   sudo git -C /opt/pandabot-core checkout main && \
+   sudo git -C /opt/pandabot-core merge --ff-only origin/staging && \
+   sudo git -C /opt/pandabot-core push origin main && \
+   sudo systemctl restart discord-bot pandaqa"
+```
+
+If only one production bot is affected by the change, restart only that bot.
 
 ## Running tests
 
