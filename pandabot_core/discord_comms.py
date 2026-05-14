@@ -392,7 +392,7 @@ def make_help_cog():
 
     class _HelpCog(_commands.Cog, name="help"):
 
-        @_commands.command(name="commands", aliases=["help"])
+        @_commands.command(name="commands?", aliases=["help?"])
         async def cmd_commands(self, ctx: _commands.Context) -> None:
             """List all available !commands."""
             lines = []
