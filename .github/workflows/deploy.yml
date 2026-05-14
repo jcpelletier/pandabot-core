@@ -1,0 +1,35 @@
+name: Deploy
+
+on:
+  push:
+    branches: [staging, main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PANDA_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H 100.65.72.102 >> ~/.ssh/known_hosts
+
+      - name: Deploy to staging
+        if: github.ref == 'refs/heads/staging'
+        run: |
+          ssh genesis@100.65.72.102 \
+            "git -C /opt/pandabot-core-staging pull origin staging && \
+             sudo systemctl restart discord-bot-staging"
+
+      - name: Deploy to production
+        if: github.ref == 'refs/heads/main'
+        run: |
+          ssh genesis@100.65.72.102 \
+            "sudo git -C /opt/pandabot-core pull origin main && \
+             sudo systemctl restart discord-bot pandaqa"
