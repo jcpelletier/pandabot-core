@@ -38,6 +38,7 @@ __all__ = [
     "build_history",
     "announce_startup",
     "ConfirmationManager",
+    "make_confirmation_view",
     "WebhookServer",
     "model_switch_banner",
     "make_model_switch_cog",
@@ -253,8 +254,92 @@ class ConfirmationManager:
             return None
         return self._pending.pop(channel_id, None)
 
+    def peek(self, channel_id: int) -> dict | None:
+        """Return the pending confirmation for this channel without consuming it, or None."""
+        return self._pending.get(channel_id)
+
+    def force_consume(self, channel_id: int) -> dict | None:
+        """Remove and return the pending confirmation without requiring an affirmative word."""
+        return self._pending.pop(channel_id, None)
+
     def clear(self, channel_id: int) -> None:
         self._pending.pop(channel_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Interactive confirmation view
+# ---------------------------------------------------------------------------
+
+def make_confirmation_view(
+    execute: "Callable[[], Any]",
+    on_cancel: "Callable[[], None] | None" = None,
+    timeout: float = 300.0,
+) -> "Any":
+    """
+    Return a discord.ui.View with green Confirm and red Cancel buttons.
+
+    Parameters
+    ----------
+    execute   : async callable () -> str   — called when Confirm is clicked;
+                its return value is sent as a follow-up message.
+    on_cancel : sync callable () -> None  — called when Cancel is clicked
+                (e.g. to clear a ConfirmationManager entry). Optional.
+    timeout   : seconds before the buttons auto-disable (default 5 minutes).
+
+    Usage
+    -----
+        view = make_confirmation_view(execute=my_coroutine, on_cancel=clear_fn)
+        msg = await channel.send(view=view)
+        view.message = msg   # lets on_timeout disable buttons via message.edit
+    """
+    import discord as _discord
+
+    class _ConfirmationView(_discord.ui.View):
+        def __init__(self) -> None:
+            super().__init__(timeout=timeout)
+            self.message: "_discord.Message | None" = None
+
+        def _disable_all(self) -> None:
+            for child in self.children:
+                child.disabled = True  # type: ignore[union-attr]
+
+        @_discord.ui.button(label="Confirm", style=_discord.ButtonStyle.green, emoji="✅")
+        async def confirm_button(
+            self,
+            interaction: "_discord.Interaction",
+            button: "_discord.ui.Button",
+        ) -> None:
+            self._disable_all()
+            await interaction.response.edit_message(view=self)
+            self.stop()
+            try:
+                result = await execute()
+            except Exception as exc:
+                result = f"❌ Error: {exc}"
+            for chunk in split_message(str(result)):
+                await interaction.followup.send(chunk)
+
+        @_discord.ui.button(label="Cancel", style=_discord.ButtonStyle.red, emoji="✖️")
+        async def cancel_button(
+            self,
+            interaction: "_discord.Interaction",
+            button: "_discord.ui.Button",
+        ) -> None:
+            if on_cancel is not None:
+                on_cancel()
+            self._disable_all()
+            await interaction.response.edit_message(content="❌ Cancelled.", view=self)
+            self.stop()
+
+        async def on_timeout(self) -> None:
+            self._disable_all()
+            if self.message is not None:
+                try:
+                    await self.message.edit(view=self)
+                except Exception:
+                    pass
+
+    return _ConfirmationView()
 
 
 # ---------------------------------------------------------------------------
