@@ -1,7 +1,7 @@
 # CLAUDE.md — pandabot-core
 
 Shared infrastructure package for all PandaBot deployments.
-GitHub: `jcpelletier/pandabot-core` (private)
+GitHub: `jcpelletier/pandabot-core`
 Local path: `C:\Users\genes\Downloads\PandaMigration\pandabot-core`
 Server paths: `/opt/pandabot-core/` (main, production) · `/opt/pandabot-core-staging/` (staging)
 
@@ -65,30 +65,13 @@ promoting Pandabot itself.
 
 ## Deploying changes
 
-**Staging (Jules merges automatically → bot deploys):**
-```bash
-# Jules creates a PR against staging; Pandabot-Dev merges and then auto-runs:
-wsl ssh -i ~/.ssh/id_ed25519 genesis@192.168.1.100 \
-  "sudo git -C /opt/pandabot-core-staging pull origin staging && sudo systemctl restart discord-bot-staging"
-```
-
-**Production (via Pandabot-Dev "promote to production, include core"):**
-```bash
-# Pandabot-Dev runs these steps internally when include_core=true:
-wsl ssh -i ~/.ssh/id_ed25519 genesis@192.168.1.100 \
-  "sudo git -C /opt/pandabot-core fetch origin && \
-   sudo git -C /opt/pandabot-core checkout main && \
-   sudo git -C /opt/pandabot-core merge --ff-only origin/staging && \
-   sudo git -C /opt/pandabot-core push origin main && \
-   sudo systemctl restart discord-bot pandaqa"
-```
-
-If only one production bot is affected by the change, restart only that bot.
+Deployment is handled automatically by GitHub Actions on push to `staging` or `main`,
+and by Pandabot-Dev for production promotions. See the parent CLAUDE.md for SSH commands
+and server paths.
 
 ## Running tests
 
 ```bash
-cd "C:\Users\genes\Downloads\PandaMigration\pandabot-core"
 python -m pytest tests/ -v
 ```
 
