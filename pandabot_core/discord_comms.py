@@ -199,8 +199,12 @@ def _read_changelog_entry(bot_dir: str, version: int | str) -> str:
         if collecting:
             if line.startswith("## "):
                 break
-            out.append(line.rstrip())
-    return "\n".join(l for l in out if l).strip()
+            stripped = line.rstrip()
+            if stripped.startswith("- "):
+                stripped = "• " + stripped[2:]
+            if stripped:
+                out.append(stripped)
+    return "\n".join(out)
 
 
 async def announce_startup(
