@@ -102,7 +102,7 @@ class FakeProvider:
             ScriptedResponse(tool_calls=[{"name": "get_status", "input": {}}]),
             ScriptedResponse(text="The server is healthy."),
         ])
-        monkeypatch.setattr(llm_provider, "_provider", fake)
+        monkeypatch.setattr(llm_provider, "get_provider", lambda: fake)
 
         # After driving run_claude_loop:
         assert len(fake.calls) == 2

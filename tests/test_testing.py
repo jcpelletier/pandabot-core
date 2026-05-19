@@ -270,7 +270,7 @@ class TestFakeProviderWithLoop:
         from pandabot_core.llm.loop import run_claude_loop
 
         fake = FakeProvider.returning("Panda is healthy.")
-        monkeypatch.setattr(prov_mod, "_provider", fake)
+        monkeypatch.setattr(prov_mod, "get_provider", lambda: fake)
 
         result = run_claude_loop(
             user_message="How is the server?",
@@ -287,7 +287,7 @@ class TestFakeProviderWithLoop:
         from pandabot_core.llm.loop import run_claude_loop
 
         fake = FakeProvider.calling_then_replying("ping", {}, "Ping returned pong.")
-        monkeypatch.setattr(prov_mod, "_provider", fake)
+        monkeypatch.setattr(prov_mod, "get_provider", lambda: fake)
 
         tool_calls_seen = []
 

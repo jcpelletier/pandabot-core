@@ -17,6 +17,7 @@ DB path: cfg.db_path("scheduler.db") — set PANDABOT_DATA_DIR to control locati
 
 from __future__ import annotations
 
+import calendar
 import datetime
 import json
 import sqlite3
@@ -182,12 +183,8 @@ def schedule_next_recurring(task: Any) -> None:
             m = next_local.month + 1
             y = next_local.year + (1 if m > 12 else 0)
             m = m if m <= 12 else 1
-            try:
-                next_local = next_local.replace(year=y, month=m, day=day)
-            except ValueError:
-                m2 = m + 1 if m < 12 else 1
-                y2 = y + (1 if m == 12 else 0)
-                next_local = next_local.replace(year=y2, month=m2, day=1)
+            _, last_day = calendar.monthrange(y, m)
+            next_local = next_local.replace(year=y, month=m, day=min(day, last_day))
 
     elif rule.startswith("weekly:"):
         next_local = fired_local + datetime.timedelta(weeks=1)
