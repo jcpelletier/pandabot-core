@@ -27,7 +27,7 @@ log = logging.getLogger("pandabot.pm.openproject")
 
 __all__ = [
     "list_projects", "get_project", "list_work_packages", "get_work_package",
-    "list_versions", "list_version_tickets", "search_work_packages",
+    "list_children", "list_versions", "list_version_tickets", "search_work_packages",
     "list_project_members", "list_types",
     "create_project", "set_project_parent",
     "create_work_package", "update_work_package",
@@ -152,6 +152,20 @@ def get_work_package(wp_id: int) -> str:
         return "OpenProject integration is not enabled."
     try:
         return json.dumps(_slim_wp(_op("GET", f"/work_packages/{wp_id}")), indent=2)
+    except Exception as e:
+        return f"OpenProject error: {e}"
+
+
+def list_children(parent_wp_id: int) -> str:
+    if not _enabled():
+        return "OpenProject integration is not enabled."
+    try:
+        filters = urllib.parse.quote(
+            json.dumps([{"parent": {"operator": "=", "values": [str(parent_wp_id)]}}])
+        )
+        data = _op("GET", f"/work_packages?filters={filters}&pageSize=100")
+        wps = [_slim_wp(wp) for wp in data.get("_embedded", {}).get("elements", [])]
+        return json.dumps({"parent_wp_id": parent_wp_id, "count": len(wps), "work_packages": wps}, indent=2)
     except Exception as e:
         return f"OpenProject error: {e}"
 
