@@ -2,7 +2,7 @@
 
 Shared infrastructure package for all PandaBot deployments.
 GitHub: `jcpelletier/pandabot-core` (private)
-Local path: `C:\Users\genes\Downloads\PandaMigration\pandabot-core`
+Local path: `C:\Users\genes\GitHub\PandaMigration\pandabot-core`
 Server paths: `/opt/pandabot-core/` (main, production) · `/opt/pandabot-core-staging/` (staging)
 
 ## What this repo is
@@ -88,7 +88,7 @@ If only one production bot is affected by the change, restart only that bot.
 ## Running tests
 
 ```bash
-cd "C:\Users\genes\Downloads\PandaMigration\pandabot-core"
+cd "C:\Users\genes\GitHub\PandaMigration\pandabot-core"
 python -m pytest tests/ -v
 ```
 
