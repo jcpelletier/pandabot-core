@@ -19,18 +19,18 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.PANDA_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H 100.65.72.102 >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.PANDA_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy to staging
         if: github.ref == 'refs/heads/staging'
         run: |
-          ssh genesis@100.65.72.102 \
+          ssh ${{ secrets.PANDA_USER }}@${{ secrets.PANDA_HOST }} \
             "git -C /opt/pandabot-core-staging pull origin staging && \
              sudo systemctl restart discord-bot-staging"
 
       - name: Deploy to production
         if: github.ref == 'refs/heads/main'
         run: |
-          ssh genesis@100.65.72.102 \
+          ssh ${{ secrets.PANDA_USER }}@${{ secrets.PANDA_HOST }} \
             "sudo git -C /opt/pandabot-core pull origin main && \
              sudo systemctl restart discord-bot pandaqa"

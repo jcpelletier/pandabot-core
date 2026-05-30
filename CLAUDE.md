@@ -29,22 +29,20 @@ Both **Pandabot** and **Pandabot-QA** import from it. The server reads it direct
 | `pandabot_core.tool_registry` | `ToolRegistry`, `registry` | Feature-flag-gated tool registration and dispatch |
 | `pandabot_core.pm.openproject` | functions | OpenProject REST adapter (list/get/create/update projects and work packages) |
 
+## Coding conventions
+
+See `AGENTS.md` — it is the authoritative source for coding rules (lazy imports,
+backwards compatibility, no bot-specific logic, test requirements). Claude Code and
+all other agents read that file.
+
 ## Key design decisions
 
 **DB path:** `cfg.db_path("scheduler.db")` resolves to `$PANDABOT_DATA_DIR/scheduler.db`.
 Pandabot sets `PANDABOT_DATA_DIR=/opt/discord-bot` in its systemd unit so it reuses the
 existing `scheduler.db` with no data migration.
 
-**discord.py lazy import:** `discord_comms.py` uses `TYPE_CHECKING` for all discord types.
-Runtime discord usage is done via inline `import discord` inside functions. This lets tests
-import the module without installing discord.py.
-
-**No version file:** pandabot-core has no `VERSION` file or pre-commit hook. Changes are
-deployed by `git pull` on the server — both bots restart to pick them up.
-
-**Packaging:** Option C (shared PYTHONPATH) — chosen for simplicity while the API
-stabilises. Future migration path: add `jcpelletier/pandabot-core` as a git dependency in
-each bot's `requirements.txt` and switch to `pip install -e`.
+**Packaging:** Shared PYTHONPATH — the server clones this repo and each bot's systemd
+unit sets `PYTHONPATH` to the clone directory. No pip install or build step required.
 
 ## Branch strategy
 
@@ -65,25 +63,9 @@ promoting Pandabot itself.
 
 ## Deploying changes
 
-**Staging (Jules merges automatically → bot deploys):**
-```bash
-# Jules creates a PR against staging; Pandabot-Dev merges and then auto-runs:
-wsl ssh -i ~/.ssh/id_ed25519 genesis@192.168.1.100 \
-  "sudo git -C /opt/pandabot-core-staging pull origin staging && sudo systemctl restart discord-bot-staging"
-```
-
-**Production (via Pandabot-Dev "promote to production, include core"):**
-```bash
-# Pandabot-Dev runs these steps internally when include_core=true:
-wsl ssh -i ~/.ssh/id_ed25519 genesis@192.168.1.100 \
-  "sudo git -C /opt/pandabot-core fetch origin && \
-   sudo git -C /opt/pandabot-core checkout main && \
-   sudo git -C /opt/pandabot-core merge --ff-only origin/staging && \
-   sudo git -C /opt/pandabot-core push origin main && \
-   sudo systemctl restart discord-bot pandaqa"
-```
-
-If only one production bot is affected by the change, restart only that bot.
+Deployment is handled automatically by GitHub Actions on push to `staging` or `main`,
+and by Pandabot-Dev for production promotions. See the parent CLAUDE.md for SSH commands
+and server paths.
 
 ## Running tests
 
@@ -95,13 +77,6 @@ python -m pytest tests/ -v
 30 tests covering: config, scheduler, discord_comms, identity, tool_registry.
 Tests require no discord.py, anthropic, or aiohttp — all heavy deps are either
 absent from core or stubbed by the lazy import pattern.
-
-## Adding a new module
-
-1. Create `pandabot_core/<module>.py` with `__all__` and a module docstring.
-2. Add tests in `tests/test_<module>.py`.
-3. Import from it in the relevant bot(s) after confirming tests pass.
-4. Document the module in the table above.
 
 ## Env vars consumed by core
 
