@@ -25,7 +25,7 @@ jobs:
         if: github.ref == 'refs/heads/staging'
         run: |
           ssh ${{ secrets.PANDA_USER }}@${{ secrets.PANDA_HOST }} \
-            "git -C /opt/pandabot-core-staging pull origin staging && \
+            "sudo git -C /opt/pandabot-core-staging pull origin staging && \
              sudo systemctl restart discord-bot-staging"
 
       - name: Deploy to production
