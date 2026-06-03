@@ -44,6 +44,15 @@ existing `scheduler.db` with no data migration.
 **Packaging:** Shared PYTHONPATH — the server clones this repo and each bot's systemd
 unit sets `PYTHONPATH` to the clone directory. No pip install or build step required.
 
+**System prompt is static for caching:** `identity.build_system_prompt()` must return
+byte-identical output across consecutive calls (given the same env and `extra_sections`),
+so providers' automatic prompt caching can hit on the full prefix. Do not add any
+per-call dynamic content (timestamps, random seeds, conversation IDs, etc.) into this
+function or the strings it composes — that content belongs in the user message,
+injected by the calling bot. Pandabot does this in `_run_claude_loop` via
+`_build_turn_context_prefix()`. See `discord-bot/CLAUDE.md` "Caching strategy" for the
+full rationale.
+
 ## Branch strategy
 
 pandabot-core follows the same staging→main flow as Pandabot:
