@@ -44,6 +44,7 @@ import logging
 import os
 import re as _re
 from dataclasses import dataclass, field
+from typing import Callable
 
 log = logging.getLogger("panda-bot")
 
@@ -315,6 +316,104 @@ class OpenAICompatProvider:
             model=model,
             input_tokens=response.usage.prompt_tokens,
             output_tokens=response.usage.completion_tokens,
+        )
+
+    def complete_stream(
+        self,
+        system_prompt: str,
+        messages: list[dict],
+        formatted_tools: list[dict],
+        model: str,
+        max_tokens: int = 4096,
+        on_delta: Callable[[str], None] | None = None,
+    ) -> NormalizedResponse:
+        """Like complete(), but streams the response and calls on_delta with each text chunk.
+
+        on_delta is called only when the response is a plain text turn (no tool calls).
+        Tool-call rounds are detected in the stream and on_delta is suppressed for that
+        round; the returned NormalizedResponse is identical to what complete() would return.
+        """
+        oai_messages = self._to_openai_messages(system_prompt, messages)
+        stream = self.client.chat.completions.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=oai_messages,
+            tools=formatted_tools or None,
+            tool_choice="auto" if formatted_tools else None,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        full_text = ""
+        reasoning_text = ""
+        # tool_calls_raw: index → {id, name, arguments}
+        tool_calls_raw: dict[int, dict] = {}
+        finish_reason: str | None = None
+        input_tokens = 0
+        output_tokens = 0
+        tool_calls_detected = False
+
+        for chunk in stream:
+            if chunk.usage:
+                input_tokens = chunk.usage.prompt_tokens
+                output_tokens = chunk.usage.completion_tokens
+
+            if not chunk.choices:
+                continue
+
+            choice = chunk.choices[0]
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+
+            if delta.tool_calls:
+                tool_calls_detected = True
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in tool_calls_raw:
+                        tool_calls_raw[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc.id:
+                        tool_calls_raw[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls_raw[idx]["name"] += tc.function.name
+                        if tc.function.arguments:
+                            tool_calls_raw[idx]["arguments"] += tc.function.arguments
+
+            reasoning_delta = getattr(delta, "reasoning_content", None)
+            if reasoning_delta:
+                reasoning_text += reasoning_delta
+
+            if delta.content:
+                full_text += delta.content
+                if not tool_calls_detected and on_delta:
+                    on_delta(delta.content)
+
+        content: list[ContentBlock] = []
+        if reasoning_text:
+            content.append(ContentBlock(type="reasoning_content", text=reasoning_text))
+        if full_text:
+            content.append(ContentBlock(type="text", text=full_text))
+        for idx in sorted(tool_calls_raw):
+            tc = tool_calls_raw[idx]
+            try:
+                input_dict = json.loads(tc["arguments"] or "{}")
+            except json.JSONDecodeError:
+                input_dict = {}
+            content.append(ContentBlock(
+                type="tool_use",
+                id=tc["id"],
+                name=tc["name"],
+                input=input_dict,
+            ))
+
+        stop_reason = "tool_use" if finish_reason == "tool_calls" else "end_turn"
+        return NormalizedResponse(
+            stop_reason=stop_reason,
+            content=content,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
     def complete_simple(

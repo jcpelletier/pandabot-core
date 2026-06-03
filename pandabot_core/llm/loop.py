@@ -51,6 +51,7 @@ def run_claude_loop(
     conversation_id: str | None = None,
     on_confirm: Callable[[int, str, dict], None] | None = None,
     extra_confirm_tools: "set[str] | None" = None,
+    on_text_delta: Callable[[str], None] | None = None,
 ) -> str:
     """
     Synchronous agentic loop. Runs LLM → tool → LLM until end_turn or tool limit.
@@ -66,6 +67,9 @@ def run_claude_loop(
     conversation_id : UUID string for usage logging; generated if None
     on_confirm      : called when a destructive-preview tool result should be saved
                       as a pending confirmation. Signature: (channel_id, name, inputs)
+    on_text_delta   : if provided and the active provider supports streaming, called
+                      with each text chunk on the final (non-tool-call) round. Tool-call
+                      rounds never invoke this callback.
     """
     import time as _time
 
@@ -78,14 +82,26 @@ def run_claude_loop(
     tools_called: list[str] = []
     t0 = _time.monotonic()
 
+    _can_stream = on_text_delta is not None and hasattr(provider, "complete_stream")
+
     for _ in range(25):  # safety: max 25 tool-call rounds
-        response = provider.complete(
-            system_prompt=system_prompt,
-            messages=messages,
-            formatted_tools=formatted_tools,
-            model=provider.primary_model,
-            max_tokens=4096,
-        )
+        if _can_stream:
+            response = provider.complete_stream(
+                system_prompt=system_prompt,
+                messages=messages,
+                formatted_tools=formatted_tools,
+                model=provider.primary_model,
+                max_tokens=4096,
+                on_delta=on_text_delta,
+            )
+        else:
+            response = provider.complete(
+                system_prompt=system_prompt,
+                messages=messages,
+                formatted_tools=formatted_tools,
+                model=provider.primary_model,
+                max_tokens=4096,
+            )
         _usage.log_call(
             conversation_id=conv_id,
             model=response.model,
