@@ -17,6 +17,7 @@ adapter — with no bot-specific or Discord-event logic.
 | `pandabot_core.identity` | `build_system_prompt`, `startup_message` — assembles bot identity from env vars and feature flags |
 | `pandabot_core.telemetry` | `ai_event`, `ai_trace` — fire-and-forget App Insights via daemon threads; silently disabled if key is unset |
 | `pandabot_core.tool_registry` | `ToolRegistry` — feature-flag-gated tool registration and dispatch |
+| `pandabot_core.channels` | `BotChannelMap`, `send_to_bot`, `make_message_bot_tool` — inter-bot messaging (post a request in another bot's channel). See [CHANNELS.md](CHANNELS.md) |
 | `pandabot_core.pm.openproject` | OpenProject REST adapter (list/get/create/update projects and work packages) |
 
 ## Usage
