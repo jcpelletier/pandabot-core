@@ -39,6 +39,8 @@ __all__ = [
     "send_to_bot",
     "send_to_bot_threadsafe",
     "make_message_bot_tool",
+    "MessageBotDispatcher",
+    "attach_message_bot",
 ]
 
 
@@ -140,6 +142,53 @@ def send_to_bot_threadsafe(
     except Exception as exc:  # noqa: BLE001
         log.exception("send_to_bot_threadsafe failed for target %s", target)
         return f"Failed to deliver to '{target}': {exc}"
+
+
+class MessageBotDispatcher:
+    """One-call wiring for the ``message_bot`` inter-bot tool.
+
+    Bots run their tool functions in a worker thread (``run_in_executor``), so the
+    tool cannot await Discord directly. This bundles the channel map, the tool
+    schema, and a thread-safe ``execute`` that bridges back to the bot's event loop
+    — so a bot opts in with roughly::
+
+        dispatcher = attach_message_bot(client, loop, sender="pandabot-dev")
+        TOOL_DEFINITIONS.append(dispatcher.tool)
+        # in execute_tool(): if name == "message_bot": return dispatcher.execute(args)
+
+    Replies are NOT routed back here — the convention is one-way (see module
+    docstring); the target writes results to the shared work item (a GitHub issue)
+    or replies in its own channel where a human/poller picks them up.
+    """
+
+    def __init__(self, client, loop, channel_map: BotChannelMap,
+                 sender: "str | None" = None) -> None:
+        self._client = client
+        self._loop = loop
+        self._map = channel_map
+        self._sender = sender
+        self.tool = make_message_bot_tool(channel_map)
+
+    def execute(self, args: dict) -> str:
+        target = (args or {}).get("target", "")
+        request = (args or {}).get("request", "")
+        if not target or not request:
+            return "message_bot requires both 'target' and 'request'."
+        return send_to_bot_threadsafe(
+            self._client, self._loop, self._map, target, request, sender=self._sender,
+        )
+
+
+def attach_message_bot(client, loop, *, sender: "str | None" = None,
+                       channel_map: "BotChannelMap | None" = None) -> MessageBotDispatcher:
+    """Build a :class:`MessageBotDispatcher` from the ``BOT_CHANNELS`` env var.
+
+    ``loop`` is the bot's running asyncio event loop (capture it in ``on_ready`` via
+    ``asyncio.get_running_loop()``). ``sender`` is this bot's own map name, used in the
+    request header so the target's addressing gate matches.
+    """
+    cmap = channel_map if channel_map is not None else BotChannelMap.from_env()
+    return MessageBotDispatcher(client, loop, cmap, sender=sender)
 
 
 def make_message_bot_tool(channel_map: BotChannelMap) -> dict:
