@@ -18,7 +18,7 @@ adapter — with no bot-specific or Discord-event logic.
 | `pandabot_core.telemetry` | `ai_event`, `ai_trace` — fire-and-forget App Insights via daemon threads; silently disabled if key is unset |
 | `pandabot_core.tool_registry` | `ToolRegistry` — feature-flag-gated tool registration and dispatch |
 | `pandabot_core.channels` | `BotChannelMap`, `send_to_bot`, `make_message_bot_tool` — inter-bot messaging (post a request in another bot's channel). See [CHANNELS.md](CHANNELS.md) |
-| `pandabot_core.pm.openproject` | OpenProject REST adapter (list/get/create/update projects and work packages) |
+| `pandabot_core.pm.github` | GitHub Issues adapter (list/get/search/create/update issues, sub-issues, milestones) |
 
 ## Usage
 
@@ -50,7 +50,7 @@ from pandabot_core.discord_comms import keep_typing, split_message
 | `APPINSIGHTS_ENDPOINT` | `telemetry` | Custom ingestion endpoint (optional) |
 | `BOT_NAME`, `BOT_EMOJI` | `identity` | Bot identity in prompts and startup messages |
 | `BOT_ENVIRONMENT` | `config`, `identity`, `telemetry` | `staging` or `production` (default) |
-| `OPENPROJECT_URL`, `OPENPROJECT_API_KEY` | `pm.openproject` | OpenProject connection |
+| `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS`, `ENABLE_GITHUB_PM` | `pm.github` | GitHub Issues connection (token with Issues read/write; owner defaults to `jcpelletier`) |
 
 ## Running tests
 

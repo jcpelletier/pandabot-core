@@ -27,7 +27,7 @@ Both **Pandabot** and **Pandabot-QA** import from it. The server reads it direct
 | `pandabot_core.identity` | `build_system_prompt()`, `startup_message()`, `bot_name()`, `bot_emoji()` | System prompt assembly from env vars and feature flags |
 | `pandabot_core.telemetry` | `ai_event()`, `ai_trace()` | Fire-and-forget App Insights via daemon threads; silently disabled if `APPINSIGHTS_IKEY` unset |
 | `pandabot_core.tool_registry` | `ToolRegistry`, `registry` | Feature-flag-gated tool registration and dispatch |
-| `pandabot_core.pm.openproject` | functions | OpenProject REST adapter (list/get/create/update projects and work packages) |
+| `pandabot_core.pm.github` | functions | GitHub Issues adapter (list/get/search/create/update issues, sub-issues, milestones) |
 
 ## Coding conventions
 
@@ -107,4 +107,5 @@ absent from core or stubbed by the lazy import pattern.
 | `JENKINS_JOBS` | `identity` | Job names shown in Jenkins block |
 | `SYSTEMD_SERVICES` | `identity` | Systemd units shown in services block |
 | `BOT_ENVIRONMENT` | `config`, `identity`, `telemetry` | `staging` or `production` (default). Adds `[staging]` to startup message, staging note to system prompt, and tags all telemetry events with the environment. |
-| `OPENPROJECT_URL`, `OPENPROJECT_API_KEY` | `pm.openproject` | OpenProject connection |
+| `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` | `pm.github` | GitHub Issues connection (token with Issues read/write; owner defaults to `jcpelletier`) |
+| `ENABLE_GITHUB_PM` | `pm.github` | Feature flag — enables the GitHub Issues adapter |

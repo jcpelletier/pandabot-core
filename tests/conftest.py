@@ -15,8 +15,8 @@ def isolated_data_dir(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def clear_openproject_env():
-    """Ensure OpenProject env vars don't bleed between tests."""
-    for key in ("ENABLE_OPENPROJECT", "OPENPROJECT_URL", "OPENPROJECT_API_KEY"):
+def clear_github_pm_env():
+    """Ensure GitHub PM env vars don't bleed between tests."""
+    for key in ("ENABLE_GITHUB_PM", "GITHUB_TOKEN", "GITHUB_OWNER", "GITHUB_REPOS"):
         os.environ.pop(key, None)
     yield
