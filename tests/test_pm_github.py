@@ -148,6 +148,17 @@ def test_set_status_label_swaps_only_status(calls):
     assert "status: in-qa" in sent
 
 
+def test_list_comments_slims(calls):
+    calls.queue.append([
+        {"id": 1, "user": {"login": "pandaqa"}, "created_at": "t", "body": "changes-requested: missing win condition"},
+    ])
+    out = json.loads(gh.list_comments("game", 5, limit=5))
+    assert out["count"] == 1
+    assert out["comments"][0]["user"] == "pandaqa"
+    assert "missing win condition" in out["comments"][0]["body"]
+    assert calls[0]["url"].endswith("/repos/jcpelletier/game/issues/5/comments")
+
+
 def test_list_children_with_status_projects_labels(calls):
     calls.queue.append([
         {"number": 10, "title": "story A", "state": "open",

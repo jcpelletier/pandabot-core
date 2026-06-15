@@ -41,7 +41,7 @@ __all__ = [
     "list_sub_issues", "search_issues",
     "list_milestones", "list_milestone_issues",
     "create_issue", "update_issue",
-    "add_comment", "set_status_label", "list_children_with_status",
+    "add_comment", "list_comments", "set_status_label", "list_children_with_status",
 ]
 
 
@@ -260,6 +260,26 @@ def add_comment(repo: str, number: int, body: str) -> str:
             "repo": _full(repo), "issue": number,
             "comment_id": created.get("id"), "url": created.get("html_url"),
         }, indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def list_comments(repo: str, number: int, limit: int = 10) -> str:
+    """Return the most recent comments on an issue (oldest-first within the page).
+    The goal driver uses this to read PandaQA's verdict/gap-list back off a story."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    try:
+        params = {"per_page": min(int(limit), 100), "sort": "created", "direction": "desc"}
+        data = _gh("GET", f"/repos/{_full(repo)}/issues/{number}/comments", params=params)
+        comments = [{
+            "id": c.get("id"),
+            "user": (c.get("user") or {}).get("login"),
+            "created_at": c.get("created_at"),
+            "body": c.get("body") or "",
+        } for c in (data if isinstance(data, list) else [])]
+        return json.dumps({"repo": _full(repo), "issue": number,
+                           "count": len(comments), "comments": comments}, indent=2)
     except Exception as e:
         return f"GitHub error: {e}"
 
