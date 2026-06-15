@@ -115,3 +115,48 @@ def test_list_repos_uses_allowlist(monkeypatch):
     monkeypatch.setenv("GITHUB_REPOS", "Pandabot, pandabot-core")
     out = json.loads(gh.list_repos())
     assert {r["repo"] for r in out} == {"jcpelletier/Pandabot", "jcpelletier/pandabot-core"}
+
+
+def test_add_comment_posts_body(calls):
+    calls.queue.append({"id": 7, "html_url": "https://github.com/o/r/issues/3#c7"})
+    out = json.loads(gh.add_comment("Pandabot", 3, "qa-passed: all criteria met"))
+    assert out["comment_id"] == 7
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"].endswith("/repos/jcpelletier/Pandabot/issues/3/comments")
+    assert calls[0]["json"]["body"] == "qa-passed: all criteria met"
+
+
+def test_add_comment_rejects_empty():
+    assert gh.add_comment("Pandabot", 3, "   ") == "Nothing to post: comment body is empty."
+
+
+def test_set_status_label_swaps_only_status(calls):
+    # GET current labels, then PATCH the new label set.
+    calls.queue.append({"number": 5, "labels": [
+        {"name": "type: story"}, {"name": "status: in-progress"}, {"name": "area: ui"},
+    ]})
+    calls.queue.append({"number": 5, "state": "open",
+                        "labels": [{"name": "type: story"}, {"name": "area: ui"},
+                                   {"name": "status: in-qa"}]})
+    out = json.loads(gh.set_status_label("game", 5, "status: in-qa"))
+    assert "status: in-qa" in out["labels"]
+    patch = calls[1]
+    assert patch["method"] == "PATCH"
+    sent = patch["json"]["labels"]
+    assert "status: in-progress" not in sent       # old status dropped
+    assert "type: story" in sent and "area: ui" in sent  # others kept
+    assert "status: in-qa" in sent
+
+
+def test_list_children_with_status_projects_labels(calls):
+    calls.queue.append([
+        {"number": 10, "title": "story A", "state": "open",
+         "labels": [{"name": "type: story"}, {"name": "status: ready"}]},
+        {"number": 11, "title": "story B", "state": "closed",
+         "labels": [{"name": "status: done"}]},
+    ])
+    out = json.loads(gh.list_children_with_status("game", 1))
+    assert out["count"] == 2
+    assert out["children"][0]["status"] == "status: ready"
+    assert out["children"][0]["type"] == "type: story"
+    assert out["children"][1]["status"] == "status: done"
