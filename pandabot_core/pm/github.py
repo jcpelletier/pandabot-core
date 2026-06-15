@@ -41,6 +41,7 @@ __all__ = [
     "list_sub_issues", "search_issues",
     "list_milestones", "list_milestone_issues",
     "create_issue", "update_issue",
+    "add_comment", "list_comments", "set_status_label", "list_children_with_status",
 ]
 
 
@@ -122,11 +123,12 @@ def get_repo(repo: str) -> str:
     try:
         data = _gh("GET", f"/repos/{_full(repo)}")
         return json.dumps({
-            "full_name":   data.get("full_name"),
-            "description": data.get("description"),
-            "private":     data.get("private"),
-            "open_issues": data.get("open_issues_count"),
-            "url":         data.get("html_url"),
+            "full_name":      data.get("full_name"),
+            "description":    data.get("description"),
+            "private":        data.get("private"),
+            "default_branch": data.get("default_branch"),
+            "open_issues":    data.get("open_issues_count"),
+            "url":            data.get("html_url"),
         }, indent=2)
     except Exception as e:
         return f"GitHub error: {e}"
@@ -241,6 +243,94 @@ def create_issue(repo: str, title: str, body: str = "", labels: str = "",
             except Exception as link_err:
                 result["parent_link_error"] = str(link_err)
         return json.dumps(result, indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def add_comment(repo: str, number: int, body: str) -> str:
+    """Post a comment on an issue. This is the cross-bot rendezvous for progress
+    notes and QA verdicts — a durable, auditable record on the work item itself."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    if not body.strip():
+        return "Nothing to post: comment body is empty."
+    try:
+        created = _gh("POST", f"/repos/{_full(repo)}/issues/{number}/comments",
+                      json={"body": body})
+        return json.dumps({
+            "repo": _full(repo), "issue": number,
+            "comment_id": created.get("id"), "url": created.get("html_url"),
+        }, indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def list_comments(repo: str, number: int, limit: int = 10) -> str:
+    """Return the most recent comments on an issue (oldest-first within the page).
+    The goal driver uses this to read PandaQA's verdict/gap-list back off a story."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    try:
+        params = {"per_page": min(int(limit), 100), "sort": "created", "direction": "desc"}
+        data = _gh("GET", f"/repos/{_full(repo)}/issues/{number}/comments", params=params)
+        comments = [{
+            "id": c.get("id"),
+            "user": (c.get("user") or {}).get("login"),
+            "created_at": c.get("created_at"),
+            "body": c.get("body") or "",
+        } for c in (data if isinstance(data, list) else [])]
+        return json.dumps({"repo": _full(repo), "issue": number,
+                           "count": len(comments), "comments": comments}, indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def set_status_label(repo: str, number: int, status: str) -> str:
+    """Swap the issue's ``status: *`` label for ``status`` (a full label string
+    like ``status: in-qa``), leaving every other label intact. The status-label
+    state machine that drives the goal lifecycle relies on exactly one status
+    label per issue."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    status = status.strip()
+    if not status:
+        return "Nothing to set: status label is empty."
+    try:
+        full = _full(repo)
+        issue = _gh("GET", f"/repos/{full}/issues/{number}")
+        current = [l.get("name") for l in issue.get("labels", []) if isinstance(l, dict)]
+        kept = [name for name in current if name and not name.lower().startswith("status:")]
+        new_labels = kept + [status]
+        updated = _gh("PATCH", f"/repos/{full}/issues/{number}",
+                      json={"labels": new_labels})
+        return json.dumps(_slim_issue(updated), indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def list_children_with_status(repo: str, number: int) -> str:
+    """List an epic's sub-issues with just the fields the goal driver needs to
+    pick the next actionable story: number, title, state, and its ``status:`` /
+    ``type:`` labels. Thin projection over :func:`list_sub_issues`."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    try:
+        data = _gh("GET", f"/repos/{_full(repo)}/issues/{number}/sub_issues")
+        children = []
+        for it in data:
+            labels = [l.get("name") for l in it.get("labels", []) if isinstance(l, dict)]
+            status = next((n for n in labels if n and n.lower().startswith("status:")), None)
+            type_ = next((n for n in labels if n and n.lower().startswith("type:")), None)
+            children.append({
+                "number": it.get("number"),
+                "title": it.get("title"),
+                "state": it.get("state"),
+                "status": status,
+                "type": type_,
+                "url": it.get("html_url"),
+            })
+        return json.dumps({"repo": _full(repo), "parent": number,
+                           "count": len(children), "children": children}, indent=2)
     except Exception as e:
         return f"GitHub error: {e}"
 
