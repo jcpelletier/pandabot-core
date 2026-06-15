@@ -22,6 +22,16 @@ def test_create_goal_is_idempotent_per_epic():
     assert g["title"] == "Build the game (again)"  # latest title wins
 
 
+def test_base_branch_defaults_and_round_trips():
+    g_default = goals.create_goal("o/d", 1)
+    assert goals.get_goal(g_default)["base_branch"] == "main"   # default, not "staging"
+    g_custom = goals.create_goal("o/c", 2, base_branch="trunk")
+    assert goals.get_goal(g_custom)["base_branch"] == "trunk"
+    # Re-registering the same epic updates the base branch.
+    goals.create_goal("o/c", 2, base_branch="develop")
+    assert goals.get_goal(g_custom)["base_branch"] == "develop"
+
+
 def test_active_goals_excludes_complete():
     a = goals.create_goal("o/a", 1)
     b = goals.create_goal("o/b", 2)

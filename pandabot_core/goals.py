@@ -81,12 +81,17 @@ def init_db() -> None:
                 epic_number  INTEGER NOT NULL,
                 title        TEXT    NOT NULL DEFAULT '',
                 state        TEXT    NOT NULL DEFAULT 'intake',
+                base_branch  TEXT    NOT NULL DEFAULT 'main',
                 channel_id   INTEGER NOT NULL DEFAULT 0,
                 created_at   TEXT    NOT NULL,
                 updated_at   TEXT    NOT NULL,
                 UNIQUE(repo, epic_number)
             )
         """)
+        # Defensive migration: add base_branch to a goals table created before it existed.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(goals)")}
+        if "base_branch" not in cols:
+            conn.execute("ALTER TABLE goals ADD COLUMN base_branch TEXT NOT NULL DEFAULT 'main'")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS goal_story_runs (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,8 +119,12 @@ def _conn() -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 def create_goal(repo: str, epic_number: int, title: str = "",
-                channel_id: int = 0, state: str = GOAL_ACTIVE) -> int:
-    """Register a goal (or return the existing id for the same repo+epic)."""
+                channel_id: int = 0, state: str = GOAL_ACTIVE,
+                base_branch: str = "main") -> int:
+    """Register a goal (or return the existing id for the same repo+epic).
+
+    base_branch is the branch Jules targets for this goal's stories (the repo's
+    default branch — resolved by the caller), not assumed to be 'staging'."""
     init_db()
     now = _now()
     with _conn() as conn:
@@ -126,14 +135,14 @@ def create_goal(repo: str, epic_number: int, title: str = "",
         row = cur.fetchone()
         if row:
             conn.execute(
-                "UPDATE goals SET title = ?, channel_id = ?, state = ?, updated_at = ? WHERE id = ?",
-                (title, channel_id, state, now, row["id"]),
+                "UPDATE goals SET title = ?, channel_id = ?, state = ?, base_branch = ?, updated_at = ? WHERE id = ?",
+                (title, channel_id, state, base_branch, now, row["id"]),
             )
             return int(row["id"])
         cur = conn.execute(
-            "INSERT INTO goals (repo, epic_number, title, state, channel_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (repo, epic_number, title, state, channel_id, now, now),
+            "INSERT INTO goals (repo, epic_number, title, state, base_branch, channel_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (repo, epic_number, title, state, base_branch, channel_id, now, now),
         )
         return int(cur.lastrowid)
 

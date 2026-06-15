@@ -123,11 +123,12 @@ def get_repo(repo: str) -> str:
     try:
         data = _gh("GET", f"/repos/{_full(repo)}")
         return json.dumps({
-            "full_name":   data.get("full_name"),
-            "description": data.get("description"),
-            "private":     data.get("private"),
-            "open_issues": data.get("open_issues_count"),
-            "url":         data.get("html_url"),
+            "full_name":      data.get("full_name"),
+            "description":    data.get("description"),
+            "private":        data.get("private"),
+            "default_branch": data.get("default_branch"),
+            "open_issues":    data.get("open_issues_count"),
+            "url":            data.get("html_url"),
         }, indent=2)
     except Exception as e:
         return f"GitHub error: {e}"
