@@ -308,6 +308,27 @@ def set_status_label(repo: str, number: int, status: str) -> str:
         return f"GitHub error: {e}"
 
 
+def set_art_label(repo: str, number: int, label: str = "") -> str:
+    """Swap the issue's ``art: *`` label for ``label`` (a full label string like
+    ``art: in-qa``), leaving every other label — including ``status:`` — intact.
+    Pass an empty string to clear the art label entirely (art phase finished).
+    The art sub-state is parallel to, and independent of, the ``status:`` label."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    label = label.strip()
+    try:
+        full = _full(repo)
+        issue = _gh("GET", f"/repos/{full}/issues/{number}")
+        current = [l.get("name") for l in issue.get("labels", []) if isinstance(l, dict)]
+        kept = [name for name in current if name and not name.lower().startswith("art:")]
+        new_labels = kept + ([label] if label else [])
+        updated = _gh("PATCH", f"/repos/{full}/issues/{number}",
+                      json={"labels": new_labels})
+        return json.dumps(_slim_issue(updated), indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
 def list_children_with_status(repo: str, number: int) -> str:
     """List an epic's sub-issues with just the fields the goal driver needs to
     pick the next actionable story: number, title, state, and its ``status:`` /
