@@ -32,6 +32,8 @@ __all__ = [
     "STATUS_READY", "STATUS_IN_PROGRESS", "STATUS_IN_QA",
     "STATUS_QA_PASSED", "STATUS_CHANGES_REQUESTED", "STATUS_DONE",
     "STATUS_BLOCKED", "ALL_STATUSES",
+    "ART_IN_QA", "ART_APPROVED", "ART_CHANGES_REQUESTED", "ART_BLOCKED",
+    "ALL_ART_LABELS",
     "GOAL_INTAKE", "GOAL_ACTIVE", "GOAL_COMPLETE",
     "init_db", "create_goal", "get_goal", "active_goals",
     "set_goal_state", "complete_goal",
@@ -53,6 +55,18 @@ ALL_STATUSES = [
     STATUS_READY, STATUS_IN_PROGRESS, STATUS_IN_QA, STATUS_QA_PASSED,
     STATUS_CHANGES_REQUESTED, STATUS_DONE, STATUS_BLOCKED,
 ]
+
+# --- Art-loop sub-state (parallel ``art:`` label) ---------------------------
+# A story that needs assets goes through an art phase BEFORE its Jules build.
+# The art sub-state rides a separate ``art:`` label so it never clobbers the
+# story's ``status:`` label (which stays ``ready`` until the assets are in and
+# the build is dispatched). PandaQA writes the verdict; PandaBot-Dev reads it.
+ART_IN_QA = "art: in-qa"                      # asset generated, awaiting QA verdict
+ART_APPROVED = "art: approved"                # QA approved the current asset
+ART_CHANGES_REQUESTED = "art: changes-requested"  # QA wants a regeneration
+ART_BLOCKED = "art: blocked"                  # too many failed art rounds
+
+ALL_ART_LABELS = [ART_IN_QA, ART_APPROVED, ART_CHANGES_REQUESTED, ART_BLOCKED]
 
 # --- Goal-level state (epic) ------------------------------------------------
 GOAL_INTAKE = "intake"      # awaiting QA capability review / skill
