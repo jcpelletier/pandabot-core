@@ -40,7 +40,7 @@ __all__ = [
     "list_repos", "get_repo", "list_issues", "get_issue",
     "list_sub_issues", "search_issues",
     "list_milestones", "list_milestone_issues",
-    "create_issue", "update_issue",
+    "create_issue", "update_issue", "add_sub_issue",
     "add_comment", "list_comments", "set_status_label", "list_children_with_status",
 ]
 
@@ -243,6 +243,27 @@ def create_issue(repo: str, title: str, body: str = "", labels: str = "",
             except Exception as link_err:
                 result["parent_link_error"] = str(link_err)
         return json.dumps(result, indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def add_sub_issue(parent_repo: str, parent_number: int,
+                  child_repo: str, child_number: int) -> str:
+    """Link an EXISTING issue as a sub-issue of a parent, including across repos
+    under the same owner (e.g. a technical task in a code repo under a product
+    story in the ecosystem repo). create_issue's ``parent`` covers the
+    same-repo create-and-link case; this covers everything else."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    try:
+        child = _gh("GET", f"/repos/{_full(child_repo)}/issues/{child_number}")
+        _gh("POST", f"/repos/{_full(parent_repo)}/issues/{parent_number}/sub_issues",
+            json={"sub_issue_id": child["id"]})
+        return json.dumps({
+            "parent": f"{_full(parent_repo)}#{parent_number}",
+            "child": f"{_full(child_repo)}#{child_number}",
+            "linked": True,
+        }, indent=2)
     except Exception as e:
         return f"GitHub error: {e}"
 

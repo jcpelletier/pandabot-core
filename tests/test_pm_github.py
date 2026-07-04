@@ -171,3 +171,23 @@ def test_list_children_with_status_projects_labels(calls):
     assert out["children"][0]["status"] == "status: ready"
     assert out["children"][0]["type"] == "type: story"
     assert out["children"][1]["status"] == "status: done"
+
+
+def test_add_sub_issue_links_across_repos(calls):
+    calls.queue.append({"id": 777, "number": 14})  # GET child
+    calls.queue.append({})                          # POST link on parent
+    out = json.loads(gh.add_sub_issue("PandaEcosystem", 3, "PandabotDev", 14))
+    assert out["linked"] is True
+    assert out["parent"] == "jcpelletier/PandaEcosystem#3"
+    assert out["child"] == "jcpelletier/PandabotDev#14"
+    get_call, link_call = calls
+    assert get_call["method"] == "GET"
+    assert get_call["url"].endswith("/repos/jcpelletier/PandabotDev/issues/14")
+    assert link_call["method"] == "POST"
+    assert link_call["url"].endswith("/repos/jcpelletier/PandaEcosystem/issues/3/sub_issues")
+    assert link_call["json"]["sub_issue_id"] == 777
+
+
+def test_add_sub_issue_disabled(monkeypatch):
+    monkeypatch.setenv("ENABLE_GITHUB_PM", "false")
+    assert gh.add_sub_issue("A", 1, "B", 2) == "GitHub integration is not enabled."
