@@ -26,13 +26,14 @@ juggle cross-channel reply routing.
 | `pandabot-qa` | `#pandabot-qa` | `1501713664040894505` | QA gate for staging → prod |
 | `pandabot-dev` | `#pandabot-dev` | `1503589824752521216` | Coding agent (dispatches to Jules) |
 | `pandabot-devops` | `#pandabot-devops` | `1511823781620879462` | Infra/CLI + CI troubleshooting (runs on the Pi) |
+| `pandabot-plan` | `#pandabot-plan` | `1522775201769586739` | PM agent — turns ideas into GitHub epics/stories |
 
 These IDs are **configuration, not code** — `pandabot_core` hardcodes none of
 them (it must stay deployment-agnostic). Each bot receives the map via the
 `BOT_CHANNELS` env var:
 
 ```
-BOT_CHANNELS=pandabot:1082362941191495700,pandabot-qa:1501713664040894505,pandabot-dev:1503589824752521216,pandabot-devops:1511823781620879462
+BOT_CHANNELS=pandabot:1082362941191495700,pandabot-qa:1501713664040894505,pandabot-dev:1503589824752521216,pandabot-devops:1511823781620879462,pandabot-plan:1522775201769586739
 ```
 
 Format: comma-separated `name:channel_id` pairs. Names are matched
