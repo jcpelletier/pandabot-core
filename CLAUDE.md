@@ -11,7 +11,8 @@ A pure Python package — no Discord logic, no bot-specific business logic. It p
 the common infrastructure that every bot deployment needs: config loading, scheduling,
 LLM calls, Discord helpers, telemetry, and a project-management adapter.
 
-Both **Pandabot** and **Pandabot-QA** import from it. The server reads it directly from
+All the bots import from it — **Pandabot**, **Pandabot-QA**, **Pandabot-Dev**,
+**Pandabot-Plan**, and **Pandabot-Devops** (on the Pi). The server reads it directly from
 `/opt/pandabot-core` via `PYTHONPATH` — no pip install or build step required.
 
 ## Module inventory
@@ -27,7 +28,7 @@ Both **Pandabot** and **Pandabot-QA** import from it. The server reads it direct
 | `pandabot_core.identity` | `build_system_prompt()`, `startup_message()`, `bot_name()`, `bot_emoji()` | System prompt assembly from env vars and feature flags |
 | `pandabot_core.telemetry` | `ai_event()`, `ai_trace()` | Fire-and-forget App Insights via daemon threads; silently disabled if `APPINSIGHTS_IKEY` unset |
 | `pandabot_core.tool_registry` | `ToolRegistry`, `registry` | Feature-flag-gated tool registration and dispatch |
-| `pandabot_core.pm.github` | functions | GitHub Issues adapter (list/get/search/create/update issues, sub-issues, milestones; `add_comment`, `list_comments`, `set_status_label`, `list_children_with_status` for the goal workflow) |
+| `pandabot_core.pm.github` | functions | GitHub Issues adapter (list/get/search/create/update issues, sub-issues, milestones; `add_sub_issue` links an existing issue under a parent across repos — the tier-3 task ↔ product story link; `add_comment`, `list_comments`, `set_status_label`, `list_children_with_status` for the goal workflow) |
 | `pandabot_core.goals` | functions, `STATUS_*` | Persistent long-term-goal store (epics + story runs in `scheduler.db`) and the shared status-label vocabulary the goal driver, QA, and devops all use |
 | `pandabot_core.channels` | `BotChannelMap`, `make_message_bot_tool`, `send_to_bot`, `attach_message_bot` | Channel-as-inbox inter-bot messaging mechanism (deployment-agnostic; map via `BOT_CHANNELS`) |
 
@@ -85,7 +86,8 @@ cd "C:\Users\genes\GitHub\PandaEcosystem\pandabot-core"
 python -m pytest tests/ -v
 ```
 
-30 tests covering: config, scheduler, discord_comms, identity, tool_registry.
+~120 tests covering: config, scheduler(+runtime), discord_comms, identity, tool_registry,
+channels, goals, pm.github, testing fakes.
 Tests require no discord.py, anthropic, or aiohttp — all heavy deps are either
 absent from core or stubbed by the lazy import pattern.
 
