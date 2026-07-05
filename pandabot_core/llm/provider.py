@@ -604,10 +604,13 @@ def _make_provider(profile: ModelProfile) -> AnthropicProvider | OpenAICompatPro
 # Public factory — call get_provider() everywhere
 # ---------------------------------------------------------------------------
 
-def get_provider() -> AnthropicProvider | OpenAICompatProvider:
-    """Return the provider for the currently active profile (cached per profile)."""
+def get_provider(profile_name: str | None = None) -> AnthropicProvider | OpenAICompatProvider:
+    """Return the provider for the named profile (if given) or the currently active one."""
     _ensure_profiles()
-    name = get_active_profile_name()
+    name = profile_name or get_active_profile_name()
+    if name not in _profiles:
+        raise ValueError(f"Unknown profile {name!r}. Available: {list(_profiles)}")
+
     if name not in _providers:
         profile = _profiles[name]
         _providers[name] = _make_provider(profile)
@@ -618,10 +621,10 @@ def get_provider() -> AnthropicProvider | OpenAICompatProvider:
     return _providers[name]
 
 
-def get_provider_name() -> str:
-    """Return the provider type string for the active profile ('anthropic' or 'openai_compat')."""
+def get_provider_name(profile_name: str | None = None) -> str:
+    """Return the provider type string for the named (or active) profile."""
     _ensure_profiles()
-    name = get_active_profile_name()
+    name = profile_name or get_active_profile_name()
     return _profiles[name].provider_type if name in _profiles else "anthropic"
 
 

@@ -29,8 +29,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+from typing import TYPE_CHECKING
 
-import requests
+if TYPE_CHECKING:
+    import requests
 
 log = logging.getLogger("pandabot.pm.github")
 
@@ -69,6 +71,7 @@ def _full(repo: str) -> str:
 
 
 def _gh(method: str, path: str, **kwargs) -> object:
+    import requests
     url = path if path.startswith("http") else f"{_API}{path}"
     headers = {
         "Accept": "application/vnd.github+json",
