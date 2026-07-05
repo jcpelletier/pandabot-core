@@ -6,3 +6,9 @@ anthropic>=0.49.0
 
 # Optional — only needed when LLM_PROVIDER=openai_compat
 # openai>=1.0.0
+
+# Test dependencies — declared here so every clean environment that installs
+# requirements.txt (CI, the PandaQA harness, dev machines) can run the suite.
+# test_testing.py's async tests silently fail without pytest-asyncio.
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
