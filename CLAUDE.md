@@ -3,7 +3,7 @@
 Shared infrastructure package for all PandaBot deployments.
 GitHub: `jcpelletier/pandabot-core` (private)
 Local path: `C:\Users\genes\GitHub\PandaEcosystem\pandabot-core`
-Server paths: `/opt/pandabot-core/` (main, production) · `/opt/pandabot-core-staging/` (staging)
+Server path: `/opt/pandabot-core/` (production, tracks `main`)
 
 ## What this repo is
 
@@ -56,27 +56,18 @@ injected by the calling bot. Pandabot does this in `_run_claude_loop` via
 `_build_turn_context_prefix()`. See `discord-bot/CLAUDE.md` "Caching strategy" for the
 full rationale.
 
-## Branch strategy
+## Branch strategy (trunk-based, since 2026-07-05)
 
-pandabot-core follows the same staging→main flow as Pandabot:
-
-| Branch | Server path | Used by |
-|---|---|---|
-| `staging` | `/opt/pandabot-core-staging/` | `discord-bot-staging` (staging Pandabot) |
-| `main` | `/opt/pandabot-core/` | `discord-bot` (production) + `pandaqa` |
-
-**Jules targets `staging` for pandabot-core PRs** — same as Pandabot. After Jules merges
-a core staging PR, Pandabot-Dev automatically pulls `/opt/pandabot-core-staging` and restarts
-`discord-bot-staging`, so staging Pandabot immediately reflects the core change.
-
-Production promotion is done by Pandabot-Dev with `include_core=true` — it merges
-`staging → main` in core, pulls on the server, and restarts production bots before
-promoting Pandabot itself.
+`main` is the only branch. **Jules PRs target `main`**; every PR passes CI, the
+DeepSeek pre-filter, and the PandaQA acceptance gate *before* merge — a merged PR
+is the release. The old `staging` branch, `/opt/pandabot-core-staging/` clone, and
+the promotion step are retired (see PandaEcosystem epic #9).
 
 ## Deploying changes
 
-Deployment is handled automatically by GitHub Actions on push to `staging` or `main`,
-and by Pandabot-Dev for production promotions. See the parent CLAUDE.md for SSH commands
+Deployment is handled automatically by GitHub Actions on push to `main` (server
+pull + restart of `discord-bot` and `pandaqa`, then a health check). See the
+parent CLAUDE.md for SSH commands
 and server paths.
 
 ## Running tests

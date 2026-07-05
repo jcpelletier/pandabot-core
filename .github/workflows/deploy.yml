@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [staging, main]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -21,16 +21,14 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.PANDA_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to staging
-        if: github.ref == 'refs/heads/staging'
-        run: |
-          ssh ${{ secrets.PANDA_USER }}@${{ secrets.PANDA_HOST }} \
-            "sudo git -C /opt/pandabot-core-staging pull origin staging && \
-             sudo systemctl restart discord-bot-staging"
-
       - name: Deploy to production
-        if: github.ref == 'refs/heads/main'
         run: |
           ssh ${{ secrets.PANDA_USER }}@${{ secrets.PANDA_HOST }} \
             "sudo git -C /opt/pandabot-core pull origin main && \
              sudo systemctl restart discord-bot pandaqa"
+
+      - name: Post-deploy health check
+        run: |
+          sleep 15
+          ssh ${{ secrets.PANDA_USER }}@${{ secrets.PANDA_HOST }} \
+            "sudo systemctl is-active discord-bot pandaqa"

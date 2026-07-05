@@ -23,7 +23,7 @@ juggle cross-channel reply routing.
 | Bot | Channel | Channel ID | Role |
 |---|---|---|---|
 | `pandabot` | `#pandabot` | `1082362941191495700` | Main server assistant |
-| `pandabot-qa` | `#pandabot-qa` | `1501713664040894505` | QA gate for staging → prod |
+| `pandabot-qa` | `#pandabot-qa` | `1501713664040894505` | Acceptance gate — validates every PR before merge |
 | `pandabot-dev` | `#pandabot-dev` | `1503589824752521216` | Coding agent (dispatches to Jules) |
 | `pandabot-devops` | `#pandabot-devops` | `1511823781620879462` | Infra/CLI + CI troubleshooting (runs on the Pi) |
 | `pandabot-plan` | `#pandabot-plan` | `1522775201769586739` | PM agent — turns ideas into GitHub epics/stories |
