@@ -36,7 +36,8 @@ def calls(monkeypatch):
         payload = recorded.queue.pop(0) if recorded.queue else {}
         return _FakeResponse(payload)
 
-    monkeypatch.setattr(gh.requests, "request", fake_request)
+    import requests
+    monkeypatch.setattr(requests, "request", fake_request)
     return recorded
 
 
