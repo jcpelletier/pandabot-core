@@ -20,26 +20,22 @@ log = logging.getLogger("pandabot.code_qa")
 
 __all__ = ["query_codebase", "list_files", "search_pattern", "read_file"]
 
-ALLOWED_REPOS = {
-    "Pandabot": "https://github.com/jcpelletier/Pandabot.git",
-    "pandabot-core": "https://github.com/jcpelletier/pandabot-core.git",
-    "PandabotQA": "https://github.com/jcpelletier/PandabotQA.git",
-    "MediaManagement": "https://github.com/jcpelletier/MediaManagement.git",
-    "space-trader": "https://github.com/jcpelletier/space-trader.git",
-    "genealogy": "https://github.com/jcpelletier/genealogy.git",
-}
 
 def _get_repo_path(repo_name: str) -> str:
     """Return the absolute path to the local cache for a repo."""
-    if repo_name not in ALLOWED_REPOS:
+    if repo_name not in cfg.code_qa_repos():
         raise ValueError(f"Repo {repo_name!r} is not in the allowed list.")
     return os.path.join(cfg.data_dir(), "repo_cache", repo_name)
 
 
 def _clone_or_update(repo_name: str, timeout: int = 60) -> None:
     """Ensure the repo is cloned and up to date. Shallow clone only."""
+    repos = cfg.code_qa_repos()
+    if repo_name not in repos:
+        raise ValueError(f"Repo {repo_name!r} is not in the allowed list.")
+
     path = _get_repo_path(repo_name)
-    url = ALLOWED_REPOS[repo_name]
+    url = repos[repo_name]
 
     try:
         if not os.path.exists(os.path.join(path, ".git")):
@@ -62,12 +58,12 @@ def _clone_or_update(repo_name: str, timeout: int = 60) -> None:
 
 
 def list_files(repo_name: str) -> list[str]:
-    """Return a flat list of all file paths in the repo (excluding .git)."""
+    """Return a flat list of all file paths in the repo (excluding .git and build dirs)."""
     path = _get_repo_path(repo_name)
     file_list = []
+    ignore_dirs = {".git", "__pycache__", "node_modules", "dist", "build", "venv", ".venv"}
     for root, dirs, files in os.walk(path):
-        if ".git" in dirs:
-            dirs.remove(".git")
+        dirs[:] = [d for d in dirs if d not in ignore_dirs]
         for f in files:
             full_path = os.path.join(root, f)
             rel_path = os.path.relpath(full_path, path)
@@ -77,33 +73,34 @@ def list_files(repo_name: str) -> list[str]:
 
 def search_pattern(repo_name: str, pattern: str) -> str:
     """Grep for a pattern in the repo. Returns matching lines with file:line."""
-    path = _get_repo_path(repo_name)
     try:
-        # -r: recursive, -n: line number, -I: skip binary, --exclude-dir=.git
+        path = _get_repo_path(repo_name)
+        # -r: recursive, -n: line number, -I: skip binary, --exclude-dir=.git, -e: pattern
         res = subprocess.run(
-            ["grep", "-rnI", "--exclude-dir=.git", pattern, "."],
+            ["grep", "-rnI", "--exclude-dir=.git", "-e", pattern, "."],
             cwd=path, capture_output=True, text=True, check=False
         )
         return res.stdout if res.returncode == 0 else ""
     except Exception as e:
         log.error("Grep error in %s: %s", repo_name, e)
-        return ""
+        return f"Error searching {repo_name}: {str(e)}"
 
 
-def read_file(repo_name: str, file_path: str, max_size_kb: int = 50) -> str:
+def read_file(repo_name: str, file_path: str, max_size_kb: Optional[int] = None) -> str:
     """Read a file from the repo. Returns content or error message."""
-    base = _get_repo_path(repo_name)
-    full = os.path.normpath(os.path.join(base, file_path))
+    base = os.path.abspath(_get_repo_path(repo_name))
+    full = os.path.abspath(os.path.join(base, file_path))
 
-    if not full.startswith(base):
+    if os.path.commonpath([base, full]) != base:
         return f"Error: Path traversal attempt: {file_path}"
 
     if not os.path.isfile(full):
         return f"Error: File not found: {file_path}"
 
+    limit = max_size_kb if max_size_kb is not None else cfg.code_qa_max_file_size_kb()
     size_kb = os.path.getsize(full) / 1024
-    if size_kb > max_size_kb:
-        return f"Error: File too large ({size_kb:.1f}KB > {max_size_kb}KB limit)"
+    if size_kb > limit:
+        return f"Error: File too large ({size_kb:.1f}KB > {limit}KB limit)"
 
     try:
         with open(full, "r", encoding="utf-8", errors="replace") as f:
@@ -113,21 +110,22 @@ def read_file(repo_name: str, file_path: str, max_size_kb: int = 50) -> str:
         return f"Error reading {file_path}: {e}"
 
 
-def query_codebase(question: str, repo_names: Optional[list[str]] = None) -> str:
+def query_codebase(question: str, repo_names: Optional[list] = None) -> str:
     """Natural-language Q&A entry point. Fetches relevant files and calls DeepSeek."""
+    repos = cfg.code_qa_repos()
     if not repo_names:
-        repo_names = list(ALLOWED_REPOS.keys())
+        repo_names = list(repos.keys())
 
     try:
         # 1. Update/Clone repos
         for name in repo_names:
-            if name in ALLOWED_REPOS:
+            if name in repos:
                 _clone_or_update(name)
 
         # 2. Get file lists for context
         context_files = {}
         for name in repo_names:
-            if name in ALLOWED_REPOS:
+            if name in repos:
                 context_files[name] = list_files(name)
 
         # 3. Use LLM to identify relevant files
@@ -147,13 +145,17 @@ Respond with only a comma-separated list of "repo:path" pairs.
 """
         relevant_files_raw, _, _ = provider.complete_simple([{"role": "user", "content": identify_prompt}], model=model)
 
-        relevant_pairs = [p.strip() for p in relevant_files_raw.split(",") if ":" in p]
+        relevant_pairs = []
+        for p in relevant_files_raw.split(","):
+            p = p.strip()
+            if ":" in p:
+                repo, _, path = p.partition(":")
+                relevant_pairs.append((repo.strip(), path.strip()))
 
         # 4. Read relevant files
         file_contents = []
-        for pair in relevant_pairs[:10]:
-            repo, _, path = pair.partition(":")
-            if repo in ALLOWED_REPOS:
+        for repo, path in relevant_pairs[:10]:
+            if repo in repos:
                 content = read_file(repo, path)
                 if not content.startswith("Error:"):
                     # Add line numbers for citation

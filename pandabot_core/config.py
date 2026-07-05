@@ -113,6 +113,25 @@ class Config:
         val = os.environ.get("BOT_ENVIRONMENT", "production").strip().lower()
         return val if val in ("staging", "production") else "production"
 
+    def code_qa_repos(self) -> dict[str, str]:
+        """Return the map of allowed repo names to their git URLs."""
+        # Defaults for the Panda ecosystem
+        defaults = {
+            "Pandabot": "https://github.com/jcpelletier/Pandabot.git",
+            "pandabot-core": "https://github.com/jcpelletier/pandabot-core.git",
+            "PandabotQA": "https://github.com/jcpelletier/PandabotQA.git",
+            "MediaManagement": "https://github.com/jcpelletier/MediaManagement.git",
+            "space-trader": "https://github.com/jcpelletier/space-trader.git",
+            "genealogy": "https://github.com/jcpelletier/genealogy.git",
+        }
+        # Allow override via env var: PANDABOT_CODE_QA_REPOS="name:url,name:url"
+        custom = self.csv_dict("PANDABOT_CODE_QA_REPOS")
+        return {**defaults, **custom}
+
+    def code_qa_max_file_size_kb(self) -> int:
+        """Maximum file size to read for Code QA (default 50KB)."""
+        return self.int("PANDABOT_CODE_QA_MAX_FILE_SIZE_KB", 50)
+
 
 # Module-level singleton — bots import and use this directly
 cfg = Config()

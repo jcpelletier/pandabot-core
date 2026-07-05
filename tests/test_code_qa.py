@@ -47,10 +47,15 @@ def test_clone_or_update_pulls(mock_repo):
         assert "pull" in args
 
 def test_list_files(mock_repo):
+    # Add an ignored dir
+    (mock_repo / "__pycache__").mkdir()
+    (mock_repo / "__pycache__" / "file.pyc").write_text("x")
+
     files = list_files("pandabot-core")
     assert "README.md" in files
     assert "src/main.py" in files
     assert ".git" not in files
+    assert "__pycache__/file.pyc" not in files
 
 def test_search_pattern(mock_repo):
     with patch("subprocess.run") as mock_run:
