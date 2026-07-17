@@ -32,6 +32,7 @@ __all__ = [
     "STATUS_READY", "STATUS_IN_PROGRESS", "STATUS_IN_QA",
     "STATUS_QA_PASSED", "STATUS_CHANGES_REQUESTED", "STATUS_DONE",
     "STATUS_BLOCKED", "ALL_STATUSES",
+    "DESIGN_IN_REVIEW", "DESIGN_APPROVED", "DESIGN_BLOCKED", "ALL_DESIGN_LABELS",
     "ART_IN_QA", "ART_APPROVED", "ART_CHANGES_REQUESTED", "ART_BLOCKED",
     "ALL_ART_LABELS",
     "GOAL_INTAKE", "GOAL_ACTIVE", "GOAL_COMPLETE",
@@ -67,6 +68,18 @@ ART_CHANGES_REQUESTED = "art: changes-requested"  # QA wants a regeneration
 ART_BLOCKED = "art: blocked"                  # too many failed art rounds
 
 ALL_ART_LABELS = [ART_IN_QA, ART_APPROVED, ART_CHANGES_REQUESTED, ART_BLOCKED]
+
+# --- Design-phase sub-state (parallel ``design:`` label) --------------------
+# A story goes through a design pass BEFORE its art phase: PandaBot-Design reads
+# the acceptance criteria, adds the design materials the build will need (an
+# ``art`` block for any implied assets, concrete design ACs), and approves.
+# Design runs first because the art phase consumes the ``art`` block it writes.
+# Like ``art:``, this rides its own label so it never clobbers ``status:``.
+DESIGN_IN_REVIEW = "design: in-review"   # handed to PandaBot-Design, awaiting its pass
+DESIGN_APPROVED = "design: approved"     # design materials are in place; proceed to art
+DESIGN_BLOCKED = "design: blocked"       # design could not be resolved autonomously
+
+ALL_DESIGN_LABELS = [DESIGN_IN_REVIEW, DESIGN_APPROVED, DESIGN_BLOCKED]
 
 # --- Goal-level state (epic) ------------------------------------------------
 GOAL_INTAKE = "intake"      # awaiting QA capability review / skill

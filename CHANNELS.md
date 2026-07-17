@@ -22,22 +22,50 @@ juggle cross-channel reply routing.
 
 | Bot | Channel | Channel ID | Role |
 |---|---|---|---|
-| `pandabot` | `#pandabot` | `1082362941191495700` | Main server assistant |
-| `pandabot-qa` | `#pandabot-qa` | `1501713664040894505` | Acceptance gate — validates every PR before merge |
+| `pandabot` | `#pandabot` | `1494307909121740851` | Main server assistant |
+| `pandabot-qa` | `#pandabot-qa` | `1501712221799973056` | Acceptance gate — validates every PR before merge |
 | `pandabot-dev` | `#pandabot-dev` | `1503589824752521216` | Coding agent (dispatches to Jules) |
 | `pandabot-devops` | `#pandabot-devops` | `1511823781620879462` | Infra/CLI + CI troubleshooting (runs on the Pi) |
 | `pandabot-plan` | `#pandabot-plan` | `1522775201769586739` | PM agent — turns ideas into GitHub epics/stories |
+| `pandabot-design` | `#pandabot-design` | `1527522312755085413` | Design pass on a story: design ACs + asset specs, before the art phase |
+
+> **These are channel IDs, not bot user IDs.** Until 2026-07-16 this table listed
+> `1082362941191495700` for `pandabot` and `1501713664040894505` for `pandabot-qa`;
+> both are the **bots' own user IDs** and both 404 as channels (`Unknown Channel`,
+> code 10003). panda's live `BOT_CHANNELS` had the same wrong value for `pandabot`
+> (QA was correct there, which is why the goal driver's QA hand-off worked and this
+> stayed hidden). All six IDs above are verified against the Discord API.
+
+The bots' **user** IDs are a different set, used for `ALLOWED_BOT_USER_IDS` (who may
+task a bot), never for addressing:
+
+| Bot | User ID |
+|---|---|
+| `PandaBot` | `1082362941191495700` |
+| `PandaBot-QA` | `1501713664040894505` |
+| `PandaBot-Dev` | `1503589549929009153` |
+| `PandaBot-Devops` | `1511832980891504650` |
+| `PandaBot-Plan` | `1522769308403368046` |
+| `PandaBot-Design` | `1527517970018861076` |
 
 These IDs are **configuration, not code** — `pandabot_core` hardcodes none of
 them (it must stay deployment-agnostic). Each bot receives the map via the
 `BOT_CHANNELS` env var:
 
 ```
-BOT_CHANNELS=pandabot:1082362941191495700,pandabot-qa:1501713664040894505,pandabot-dev:1503589824752521216,pandabot-devops:1511823781620879462,pandabot-plan:1522775201769586739
+BOT_CHANNELS=pandabot:1494307909121740851,pandabot-qa:1501712221799973056,pandabot-dev:1503589824752521216,pandabot-devops:1511823781620879462,pandabot-plan:1522775201769586739,pandabot-design:1527522312755085413
 ```
 
 Format: comma-separated `name:channel_id` pairs. Names are matched
 case-insensitively.
+
+> **`pandabot-plan` is listed but does not yet accept bot requests.** Its
+> `on_message` returns early for *any* bot author (`if message.author.bot: return`)
+> and it has no `ALLOWED_BOT_USER_IDS` or `BOT_ALIASES`. So it is advertised as a
+> `message_bot` target and silently drops everything sent to it. Give it the same
+> allow-list + alias gate the other bots have (Pandabot-Design's is the smallest
+> example) before relying on it as an address. Human requests in `#pandabot-plan`
+> work normally.
 
 ## Key invariant
 

@@ -26,6 +26,7 @@ Env vars:
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -42,8 +43,9 @@ __all__ = [
     "list_repos", "get_repo", "list_issues", "get_issue",
     "list_sub_issues", "search_issues",
     "list_milestones", "list_milestone_issues",
-    "create_issue", "update_issue", "add_sub_issue",
-    "add_comment", "list_comments", "set_status_label", "list_children_with_status",
+    "create_issue", "update_issue", "add_sub_issue", "get_contents",
+    "add_comment", "list_comments", "set_status_label", "set_art_label",
+    "set_design_label", "list_children_with_status",
 ]
 
 
@@ -345,6 +347,62 @@ def set_art_label(repo: str, number: int, label: str = "") -> str:
         issue = _gh("GET", f"/repos/{full}/issues/{number}")
         current = [l.get("name") for l in issue.get("labels", []) if isinstance(l, dict)]
         kept = [name for name in current if name and not name.lower().startswith("art:")]
+        new_labels = kept + ([label] if label else [])
+        updated = _gh("PATCH", f"/repos/{full}/issues/{number}",
+                      json={"labels": new_labels})
+        return json.dumps(_slim_issue(updated), indent=2)
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def get_contents(repo: str, path: str = "", ref: str = "") -> str:
+    """Read a file or list a directory from a repo via the contents API.
+
+    ``path`` empty lists the repo root. Returns the decoded text for a file, or a
+    JSON listing of ``{name, type, path}`` for a directory. Binary files are
+    reported rather than decoded — callers want to know an asset exists, not its
+    bytes.
+
+    ``ref`` (branch/tag/sha) is passed as a query param, so this stays a GET.
+    """
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    try:
+        params = {"ref": ref.strip()} if ref and ref.strip() else None
+        data = _gh("GET", f"/repos/{_full(repo)}/contents/{path.strip('/')}", params=params)
+        if isinstance(data, list):
+            return json.dumps(
+                [{"name": e.get("name"), "type": e.get("type"), "path": e.get("path")}
+                 for e in data],
+                indent=2,
+            )
+        if isinstance(data, dict) and data.get("type") == "file":
+            raw = base64.b64decode(data.get("content", "") or "")
+            try:
+                return raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return (
+                    f"{data.get('path')}: binary file, {data.get('size')} bytes "
+                    f"(not decoded)."
+                )
+        return f"{path!r} is neither a file nor a directory listing."
+    except Exception as e:
+        return f"GitHub error: {e}"
+
+
+def set_design_label(repo: str, number: int, label: str = "") -> str:
+    """Swap the issue's ``design: *`` label for ``label`` (a full label string like
+    ``design: approved``), leaving every other label — including ``status:`` and
+    ``art:`` — intact. Pass an empty string to clear the design label entirely.
+    The design sub-state is parallel to, and independent of, the other labels."""
+    if not _enabled():
+        return "GitHub integration is not enabled."
+    label = label.strip()
+    try:
+        full = _full(repo)
+        issue = _gh("GET", f"/repos/{full}/issues/{number}")
+        current = [l.get("name") for l in issue.get("labels", []) if isinstance(l, dict)]
+        kept = [name for name in current if name and not name.lower().startswith("design:")]
         new_labels = kept + ([label] if label else [])
         updated = _gh("PATCH", f"/repos/{full}/issues/{number}",
                       json={"labels": new_labels})
