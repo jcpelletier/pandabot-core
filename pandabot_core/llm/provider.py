@@ -22,6 +22,7 @@ Multiple named profiles can be defined via env vars:
   PANDABOT_PROFILE_DEEPSEEK_KEY=<key>
   PANDABOT_PROFILE_DEEPSEEK_PRIMARY=deepseek-chat
   PANDABOT_PROFILE_DEEPSEEK_UPGRADE=deepseek-reasoner
+  PANDABOT_PROFILE_DEEPSEEK_EFFORT=low        # optional, see "Thinking mode" below
 
   PANDABOT_PROFILE_GEMMA_TYPE=openai_compat
   PANDABOT_PROFILE_GEMMA_URL=http://127.0.0.1:8081/v1
@@ -37,6 +38,22 @@ public API for runtime switching.
 Backward compatibility: if no PANDABOT_PROFILE_*_TYPE vars are set, a single
 "default" profile is synthesised from the old LLM_PROVIDER / OPENAI_COMPAT_*
 env vars so existing deployments keep working without changes.
+
+Thinking mode (openai_compat / DeepSeek only)
+---------------------------------------------
+DeepSeek V4 runs with thinking enabled at `high` effort by default. The effort
+level is settable per deployment (``OPENAI_COMPAT_REASONING_EFFORT`` or the
+per-profile ``PANDABOT_PROFILE_<NAME>_EFFORT``) and overridable per call via the
+``reasoning_effort=`` argument on complete/complete_stream/complete_simple.
+
+Accepted values: "none" (thinking off), "low", "high", "max". Leaving it unset
+sends nothing at all, which keeps the provider's own default and, importantly,
+keeps non-DeepSeek OpenAI-compatible backends (llama.cpp, Ollama) working — they
+reject the DeepSeek-specific ``thinking`` body field.
+
+Higher effort spends more reasoning tokens, which are billed at the output rate
+and count against ``max_tokens``. Prefer "low" on latency-sensitive interactive
+paths and "max" only on batch paths where nobody is waiting.
 """
 
 import json
@@ -95,6 +112,7 @@ class AnthropicProvider:
         formatted_tools: list[dict],
         model: str,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,  # openai_compat only; ignored here
     ) -> NormalizedResponse:
         response = self.client.messages.create(
             model=model,
@@ -133,6 +151,7 @@ class AnthropicProvider:
         messages: list[dict],
         model: str,
         max_tokens: int = 800,
+        reasoning_effort: str | None = None,  # openai_compat only; ignored here
     ) -> tuple[str, int, int]:
         response = self.client.messages.create(
             model=model,
@@ -157,6 +176,7 @@ class OpenAICompatProvider:
         api_key: str | None = None,
         primary_model: str | None = None,
         upgrade_model: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         from openai import OpenAI
         _api_key = api_key or os.environ["OPENAI_COMPAT_API_KEY"]
@@ -168,6 +188,36 @@ class OpenAICompatProvider:
         )
         self.primary_model = primary_model or os.environ["OPENAI_COMPAT_PRIMARY_MODEL"]
         self.upgrade_model = upgrade_model or os.environ.get("OPENAI_COMPAT_UPGRADE_MODEL", "")
+        # Deployment-wide default effort. Empty means "send nothing", which keeps
+        # the backend's own default and keeps non-DeepSeek backends working.
+        self.reasoning_effort = (
+            reasoning_effort
+            if reasoning_effort is not None
+            else os.environ.get("OPENAI_COMPAT_REASONING_EFFORT", "")
+        ).strip().lower()
+
+    _VALID_EFFORTS = ("none", "low", "high", "max")
+
+    def _thinking_kwargs(self, reasoning_effort: str | None) -> dict:
+        """Build the DeepSeek thinking-mode request fields, or {} to send nothing.
+
+        DeepSeek takes `thinking: {"type": "enabled"|"disabled"}` plus a
+        `reasoning_effort` of low/high/max. Both go in extra_body because they are
+        not part of the OpenAI schema the SDK validates against.
+        """
+        effort = (reasoning_effort if reasoning_effort is not None else self.reasoning_effort)
+        effort = (effort or "").strip().lower()
+        if not effort:
+            return {}
+        if effort not in self._VALID_EFFORTS:
+            log.warning(
+                "Ignoring unknown reasoning_effort %r (expected one of %s)",
+                effort, ", ".join(self._VALID_EFFORTS),
+            )
+            return {}
+        if effort == "none":
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        return {"extra_body": {"thinking": {"type": "enabled"}, "reasoning_effort": effort}}
 
     def format_tool_definitions(self, tool_defs: list[dict]) -> list[dict]:
         """Wrap Anthropic-canonical tool defs into OpenAI function-call format."""
@@ -276,6 +326,7 @@ class OpenAICompatProvider:
         formatted_tools: list[dict],
         model: str,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> NormalizedResponse:
         oai_messages = self._to_openai_messages(system_prompt, messages)
         response = self.client.chat.completions.create(
@@ -284,6 +335,7 @@ class OpenAICompatProvider:
             messages=oai_messages,
             tools=formatted_tools,
             tool_choice="auto",
+            **self._thinking_kwargs(reasoning_effort),
         )
 
         choice = response.choices[0]
@@ -326,6 +378,7 @@ class OpenAICompatProvider:
         model: str,
         max_tokens: int = 4096,
         on_delta: Callable[[str], None] | None = None,
+        reasoning_effort: str | None = None,
     ) -> NormalizedResponse:
         """Like complete(), but streams the response and calls on_delta with each text chunk.
 
@@ -342,6 +395,7 @@ class OpenAICompatProvider:
             tool_choice="auto" if formatted_tools else None,
             stream=True,
             stream_options={"include_usage": True},
+            **self._thinking_kwargs(reasoning_effort),
         )
 
         full_text = ""
@@ -421,11 +475,13 @@ class OpenAICompatProvider:
         messages: list[dict],
         model: str,
         max_tokens: int = 800,
+        reasoning_effort: str | None = None,
     ) -> tuple[str, int, int]:
         response = self.client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
             messages=messages,
+            **self._thinking_kwargs(reasoning_effort),
         )
         msg = response.choices[0].message
         text = msg.content or ""
@@ -466,6 +522,7 @@ class ModelProfile:
     upgrade_model: str = ""
     base_url: str = ""          # openai_compat only
     api_key: str = ""           # openai_compat only
+    reasoning_effort: str = ""  # openai_compat only; "" = send nothing
 
 
 def _load_profiles() -> dict[str, ModelProfile]:
@@ -490,6 +547,7 @@ def _load_profiles() -> dict[str, ModelProfile]:
             upgrade_model=os.environ.get(f"{prefix}UPGRADE", ""),
             base_url=os.environ.get(f"{prefix}URL", ""),
             api_key=os.environ.get(f"{prefix}KEY", ""),
+            reasoning_effort=os.environ.get(f"{prefix}EFFORT", ""),
         )
 
     if not profiles:
@@ -503,6 +561,7 @@ def _load_profiles() -> dict[str, ModelProfile]:
                 api_key=os.environ.get("OPENAI_COMPAT_API_KEY", ""),
                 primary_model=os.environ.get("OPENAI_COMPAT_PRIMARY_MODEL", ""),
                 upgrade_model=os.environ.get("OPENAI_COMPAT_UPGRADE_MODEL", ""),
+                reasoning_effort=os.environ.get("OPENAI_COMPAT_REASONING_EFFORT", ""),
             )
         else:
             profiles["default"] = ModelProfile(
@@ -593,6 +652,7 @@ def _make_provider(profile: ModelProfile) -> AnthropicProvider | OpenAICompatPro
             api_key=profile.api_key or None,
             primary_model=profile.primary_model or None,
             upgrade_model=profile.upgrade_model or None,
+            reasoning_effort=profile.reasoning_effort,
         )
     return AnthropicProvider(
         primary_model=profile.primary_model or None,

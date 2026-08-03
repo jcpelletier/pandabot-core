@@ -89,6 +89,7 @@ absent from core or stubbed by the lazy import pattern.
 | `PANDABOT_DATA_DIR` | `config` | Base directory for `scheduler.db` and other state files |
 | `LLM_PROVIDER` | `llm.provider` | `anthropic` (default) or `deepseek` |
 | `LLM_UPGRADE_MODEL` | `llm.provider` | Optional higher-capability model for complex tool calls |
+| `OPENAI_COMPAT_REASONING_EFFORT` | `llm.provider` | DeepSeek thinking effort: `none`/`low`/`high`/`max`. Unset sends nothing (keeps the backend default and keeps llama.cpp/Ollama working). Per-profile equivalent: `PANDABOT_PROFILE_<NAME>_EFFORT`. Overridable per call via `reasoning_effort=` on complete/complete_stream/complete_simple and on `run_claude_loop`. |
 | `ANTHROPIC_API_KEY` | `llm.provider` | Required when provider is anthropic |
 | `DEEPSEEK_API_KEY` | `llm.provider` | Required when provider is deepseek |
 | `APPINSIGHTS_IKEY` | `telemetry` | App Insights instrumentation key; omit to disable telemetry silently |

@@ -140,12 +140,14 @@ class FakeProvider:
         formatted_tools: list[dict],
         model: str,
         max_tokens: int = 4096,
+        reasoning_effort: str | None = None,
     ) -> NormalizedResponse:
         scripted = self._next()
         self.calls.append({
             "system": system_prompt,
             "messages": messages,
             "model": model,
+            "reasoning_effort": reasoning_effort,
         })
         return self._to_response(scripted)
 
@@ -154,8 +156,13 @@ class FakeProvider:
         messages: list[dict],
         model: str,
         max_tokens: int = 800,
+        reasoning_effort: str | None = None,
     ) -> tuple[str, int, int]:
-        self.simple_calls.append({"messages": messages, "model": model})
+        self.simple_calls.append({
+            "messages": messages,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        })
         return (self.simple_response, 5, 3)
 
     # --- Helpers ------------------------------------------------------------

@@ -52,6 +52,7 @@ def run_claude_loop(
     on_confirm: Callable[[int, str, dict], None] | None = None,
     extra_confirm_tools: "set[str] | None" = None,
     on_text_delta: Callable[[str], None] | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """
     Synchronous agentic loop. Runs LLM → tool → LLM until end_turn or tool limit.
@@ -70,6 +71,9 @@ def run_claude_loop(
     on_text_delta   : if provided and the active provider supports streaming, called
                       with each text chunk on the final (non-tool-call) round. Tool-call
                       rounds never invoke this callback.
+    reasoning_effort: DeepSeek thinking effort for this loop ("none"/"low"/"high"/"max").
+                      None uses the provider's configured default. Raising it costs
+                      latency and output tokens, so keep interactive loops low.
     """
     import time as _time
 
@@ -93,6 +97,7 @@ def run_claude_loop(
                 model=provider.primary_model,
                 max_tokens=4096,
                 on_delta=on_text_delta,
+                reasoning_effort=reasoning_effort,
             )
         else:
             response = provider.complete(
@@ -101,6 +106,7 @@ def run_claude_loop(
                 formatted_tools=formatted_tools,
                 model=provider.primary_model,
                 max_tokens=4096,
+                reasoning_effort=reasoning_effort,
             )
         _usage.log_call(
             conversation_id=conv_id,
@@ -157,6 +163,7 @@ def run_claude_loop(
                     formatted_tools=formatted_tools,
                     model=provider.upgrade_model,
                     max_tokens=4096,
+                    reasoning_effort=reasoning_effort,
                 )
                 _usage.log_call(
                     conversation_id=conv_id,
