@@ -236,34 +236,41 @@ class ConfirmationManager:
     """
     Stores pending destructive-action previews per channel.
     When the user replies with an affirmative word, the bot executes the
-    confirmed action directly (bypassing Claude, which is unreliable here).
+    confirmed action(s) directly (bypassing Claude, which is unreliable here).
+
+    A single model turn can preview more than one destructive call (e.g. four
+    file moves) — `save()` takes the whole batch from that turn and replaces
+    whatever was pending before, so a later "yes" runs all of them instead of
+    silently keeping only the last one saved.
     """
 
     AFFIRMATIVES = {"yes", "y", "yep", "yeah", "yup", "confirm", "ok", "okay", "sure", "do it"}
 
     def __init__(self) -> None:
-        # channel_id -> {"name": tool_name, "inputs": dict}
-        self._pending: dict[int, dict] = {}
+        # channel_id -> [{"name": tool_name, "inputs": dict}, ...]
+        self._pending: dict[int, list[dict]] = {}
 
-    def save(self, channel_id: int, tool_name: str, confirmed_inputs: dict) -> None:
-        self._pending[channel_id] = {"name": tool_name, "inputs": confirmed_inputs}
-        log.info("Pending confirmation saved for channel %s: %s", channel_id, tool_name)
+    def save(self, channel_id: int, actions: list[dict]) -> None:
+        """Replace the pending action batch for this channel with `actions`
+        (each a {"name": tool_name, "inputs": confirmed_inputs} dict)."""
+        self._pending[channel_id] = list(actions)
+        log.info("Pending confirmation saved for channel %s: %d action(s)", channel_id, len(actions))
 
-    def consume(self, channel_id: int, text: str) -> dict | None:
+    def consume(self, channel_id: int, text: str) -> list[dict] | None:
         """
-        If `text` is an affirmative and a confirmation is pending for this channel,
-        remove and return it. Otherwise return None.
+        If `text` is an affirmative and a confirmation batch is pending for
+        this channel, remove and return it. Otherwise return None.
         """
         if text.lower().strip() not in self.AFFIRMATIVES:
             return None
         return self._pending.pop(channel_id, None)
 
-    def peek(self, channel_id: int) -> dict | None:
-        """Return the pending confirmation for this channel without consuming it, or None."""
+    def peek(self, channel_id: int) -> list[dict] | None:
+        """Return the pending action batch for this channel without consuming it, or None."""
         return self._pending.get(channel_id)
 
-    def force_consume(self, channel_id: int) -> dict | None:
-        """Remove and return the pending confirmation without requiring an affirmative word."""
+    def force_consume(self, channel_id: int) -> list[dict] | None:
+        """Remove and return the pending action batch without requiring an affirmative word."""
         return self._pending.pop(channel_id, None)
 
     def clear(self, channel_id: int) -> None:
