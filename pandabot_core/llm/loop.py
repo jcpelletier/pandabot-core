@@ -49,7 +49,7 @@ def run_claude_loop(
     system_prompt: str,
     channel_id: int | None = None,
     conversation_id: str | None = None,
-    on_confirm: Callable[[int, str, dict], None] | None = None,
+    on_confirm: Callable[[int, list[dict]], None] | None = None,
     extra_confirm_tools: "set[str] | None" = None,
     on_text_delta: Callable[[str], None] | None = None,
     reasoning_effort: str | None = None,
@@ -66,8 +66,11 @@ def run_claude_loop(
     system_prompt   : assembled system prompt string
     channel_id      : Discord channel ID — passed to on_confirm for state storage
     conversation_id : UUID string for usage logging; generated if None
-    on_confirm      : called when a destructive-preview tool result should be saved
-                      as a pending confirmation. Signature: (channel_id, name, inputs)
+    on_confirm      : called once per round (not per tool call) with every destructive
+                      preview from that round batched together, so multi-action turns
+                      (e.g. four file moves) aren't collapsed to just the last one.
+                      Signature: (channel_id, actions) where actions is a list of
+                      {"name": tool_name, "inputs": confirmed_inputs} dicts.
     on_text_delta   : if provided and the active provider supports streaming, called
                       with each text chunk on the final (non-tool-call) round. Tool-call
                       rounds never invoke this callback.
@@ -190,6 +193,7 @@ def run_claude_loop(
 
             # Execute tools and gather results
             tool_results = []
+            pending_actions: list[dict] = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
@@ -198,17 +202,19 @@ def run_claude_loop(
                 result = execute_tool(block.name, block.input)
                 log.debug("Tool result (%s): %.300s", block.name, result)
 
-                # Pending-confirmation side-effect
+                # Pending-confirmation side-effect. Collected across the whole
+                # round (a single model turn can preview several destructive
+                # calls, e.g. four file moves) and flushed once below — calling
+                # on_confirm per-block here would let each call clobber the
+                # last, silently dropping all but the final preview.
                 _all_confirm = _CONFIRM_TOOLS | (extra_confirm_tools or set())
                 if (
-                    on_confirm is not None
-                    and channel_id is not None
-                    and block.name in _all_confirm
+                    block.name in _all_confirm
                     and not block.input.get("confirmed", False)
                     and ("Reply **yes** to confirm" in result or "warning" in result.lower())
                 ):
                     confirmed_inputs = {**block.input, "confirmed": True}
-                    on_confirm(channel_id, block.name, confirmed_inputs)
+                    pending_actions.append({"name": block.name, "inputs": confirmed_inputs})
 
                 tool_results.append({
                     "type": "tool_result",
@@ -216,6 +222,9 @@ def run_claude_loop(
                     "content": result,
                 })
             messages.append({"role": "user", "content": tool_results})
+
+            if on_confirm is not None and channel_id is not None and pending_actions:
+                on_confirm(channel_id, pending_actions)
 
         else:
             return f"(unexpected stop_reason: {response.stop_reason})"
