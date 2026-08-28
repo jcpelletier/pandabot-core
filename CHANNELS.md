@@ -20,40 +20,35 @@ juggle cross-channel reply routing.
 
 ## The map (this deployment)
 
-| Bot | Channel | Channel ID | Role |
-|---|---|---|---|
-| `pandabot` | `#pandabot` | `1494307909121740851` | Main server assistant |
-| `pandabot-qa` | `#pandabot-qa` | `1501712221799973056` | Acceptance gate — validates every PR before merge |
-| `pandabot-dev` | `#pandabot-dev` | `1503589824752521216` | Coding agent (dispatches to Jules) |
-| `pandabot-devops` | `#pandabot-devops` | `1511823781620879462` | Infra/CLI + CI troubleshooting (runs on the Pi) |
-| `pandabot-plan` | `#pandabot-plan` | `1522775201769586739` | PM agent — turns ideas into GitHub epics/stories |
-| `pandabot-design` | `#pandabot-design` | `1527522312755085413` | Design pass on a story: design ACs + asset specs, before the art phase |
+| Bot | Channel | Role |
+|---|---|---|
+| `pandabot` | `#pandabot` | Main server assistant |
+| `pandabot-qa` | `#pandabot-qa` | Acceptance gate — validates every PR before merge |
+| `pandabot-dev` | `#pandabot-dev` | Coding agent (dispatches to Jules) |
+| `pandabot-devops` | `#pandabot-devops` | Infra/CLI + CI troubleshooting (runs on the Pi) |
+| `pandabot-plan` | `#pandabot-plan` | PM agent — turns ideas into GitHub epics/stories |
+| `pandabot-design` | `#pandabot-design` | Design pass on a story: design ACs + asset specs, before the art phase |
 
-> **These are channel IDs, not bot user IDs.** Until 2026-07-16 this table listed
-> `1082362941191495700` for `pandabot` and `1501713664040894505` for `pandabot-qa`;
-> both are the **bots' own user IDs** and both 404 as channels (`Unknown Channel`,
-> code 10003). panda's live `BOT_CHANNELS` had the same wrong value for `pandabot`
-> (QA was correct there, which is why the goal driver's QA hand-off worked and this
-> stayed hidden). All six IDs above are verified against the Discord API.
+> **Channel IDs are deployment-specific and intentionally not listed here** —
+> they live only in panda's `.env` (`BOT_CHANNELS`). Until 2026-07-16 this table
+> listed two bots' own **user** IDs in the channel-ID column instead; both
+> 404'd as channels (`Unknown Channel`, code 10003). panda's live `BOT_CHANNELS`
+> had the same wrong value for `pandabot` (QA was correct there, which is why
+> the goal driver's QA hand-off worked and this stayed hidden). Verify each ID
+> against the Discord API (right-click the channel → Copy Channel ID with
+> Developer Mode on) before wiring up `BOT_CHANNELS`.
 
-The bots' **user** IDs are a different set, used for `ALLOWED_BOT_USER_IDS` (who may
-task a bot), never for addressing:
-
-| Bot | User ID |
-|---|---|
-| `PandaBot` | `1082362941191495700` |
-| `PandaBot-QA` | `1501713664040894505` |
-| `PandaBot-Dev` | `1503589549929009153` |
-| `PandaBot-Devops` | `1511832980891504650` |
-| `PandaBot-Plan` | `1522769308403368046` |
-| `PandaBot-Design` | `1527517970018861076` |
+The bots also have **user** IDs, a different set from the channel IDs above,
+used for `ALLOWED_BOT_USER_IDS` (who may task a bot) and never for addressing.
+Also kept out of this doc for the same reason — they live in each bot's own
+deployment config.
 
 These IDs are **configuration, not code** — `pandabot_core` hardcodes none of
 them (it must stay deployment-agnostic). Each bot receives the map via the
 `BOT_CHANNELS` env var:
 
 ```
-BOT_CHANNELS=pandabot:1494307909121740851,pandabot-qa:1501712221799973056,pandabot-dev:1503589824752521216,pandabot-devops:1511823781620879462,pandabot-plan:1522775201769586739,pandabot-design:1527522312755085413
+BOT_CHANNELS=pandabot:<id>,pandabot-qa:<id>,pandabot-dev:<id>,pandabot-devops:<id>,pandabot-plan:<id>,pandabot-design:<id>
 ```
 
 Format: comma-separated `name:channel_id` pairs. Names are matched
