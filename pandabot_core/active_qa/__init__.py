@@ -16,6 +16,7 @@ here so far:
 ============================  ====================================================
 :mod:`~.contract`             The uniform driver contract every target implements
 :mod:`~.recorder`             Full-session action recording and replayable traces
+:mod:`~.coverage`             State graph and the frontier queue that picks the next action
 :mod:`~.fake`                 A scriptable in-memory driver for tests
 ============================  ====================================================
 
@@ -40,6 +41,16 @@ from pandabot_core.active_qa.contract import (
     Observation,
     supported_actions,
 )
+from pandabot_core.active_qa.coverage import (
+    DEFAULT_WEIGHTS,
+    Candidate,
+    CoverageMap,
+    Edge,
+    Frontier,
+    PriorityWeights,
+    StateNode,
+    default_candidates,
+)
 from pandabot_core.active_qa.fake import FakeDriver, FakeScreen, ambient_noise
 from pandabot_core.active_qa.recorder import SessionRecorder, Step, Trace
 
@@ -49,6 +60,9 @@ __all__ = [
     "Element", "Observation", "Health",
     "FingerprintPolicy", "DEFAULT_FINGERPRINT_POLICY", "STRICT_FINGERPRINT_POLICY",
     "Driver", "DriverError", "supported_actions",
+    # coverage
+    "Candidate", "CoverageMap", "Edge", "StateNode",
+    "Frontier", "PriorityWeights", "DEFAULT_WEIGHTS", "default_candidates",
     # recorder
     "SessionRecorder", "Step", "Trace",
     # fake

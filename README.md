@@ -18,7 +18,7 @@ adapter — with no bot-specific or Discord-event logic.
 | `pandabot_core.telemetry` | `ai_event`, `ai_trace` — fire-and-forget App Insights via daemon threads; silently disabled if key is unset |
 | `pandabot_core.tool_registry` | `ToolRegistry` — feature-flag-gated tool registration and dispatch |
 | `pandabot_core.channels` | `BotChannelMap`, `send_to_bot`, `make_message_bot_tool` — inter-bot messaging (post a request in another bot's channel). See [CHANNELS.md](CHANNELS.md) |
-| `pandabot_core.active_qa` | Engine for exploratory (active) QA: the uniform `Driver` contract, `Observation`/`Action` schema, full-session `SessionRecorder` and replayable `Trace`, plus a scriptable `FakeDriver`. Design in PandaEcosystem's `ACTIVE_QA.md` |
+| `pandabot_core.active_qa` | Engine for exploratory (active) QA: the uniform `Driver` contract, `Observation`/`Action` schema, full-session `SessionRecorder` and replayable `Trace`, the `CoverageMap` state graph and `Frontier` policy queue, plus a scriptable `FakeDriver`. Design in PandaEcosystem's `ACTIVE_QA.md` |
 | `pandabot_core.pm.github` | GitHub Issues adapter (list/get/search/create/update issues, sub-issues, milestones) |
 | `pandabot_core.code_qa` | `query_codebase` — natural-language Q&A over ecosystem repos using DeepSeek |
 
