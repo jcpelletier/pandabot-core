@@ -48,6 +48,11 @@ class Step:
     after_screenshot: str | None = None
     logs: tuple[str, ...] = ()          # log delta produced by this action
     screen_id: str = ""                 # screen the action was taken on
+    #: Stable identity of the element acted on. Action.target is a
+    #: per-observation id, so replay has to re-resolve the element by identity
+    #: against a fresh observation -- without this a trace is not replayable at
+    #: all, which makes it useless as evidence.
+    element_identity: str = ""
     duration_ms: int = 0
 
     @property
@@ -81,6 +86,7 @@ class Step:
             after_screenshot=d.get("after_screenshot"),
             logs=tuple(d.get("logs", [])),
             screen_id=d.get("screen_id", ""),
+            element_identity=d.get("element_identity", ""),
             duration_ms=d.get("duration_ms", 0),
         )
 
@@ -138,6 +144,28 @@ class Trace:
         flush()
         return lines
 
+    def rebind(self, index: int, observation: Any) -> Any | None:
+        """Resolve step ``index``'s action against a fresh observation.
+
+        Element ids are only meaningful inside the observation that produced
+        them, so replaying a recorded action verbatim would target whatever
+        happens to be ``e7`` this time round. Re-resolving by identity is what
+        makes a trace replayable at all; None means the element is gone and the
+        replay has diverged from the recorded run.
+        """
+        from pandabot_core.active_qa.contract import Action
+
+        step = self.steps[index]
+        if not step.action.target:
+            return step.action
+        if not step.element_identity:
+            return None
+        el = observation.by_identity(step.element_identity)
+        if el is None:
+            return None
+        return Action(kind=step.action.kind, target=el.id,
+                      value=step.action.value, reason=step.action.reason)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "epoch": self.epoch,
@@ -190,6 +218,7 @@ class SessionRecorder:
         logs: Sequence[str] = (),
         screen_id: str = "",
         duration_ms: int = 0,
+        element_identity: str = "",
     ) -> Step:
         """Append one step. Returns it, so the caller can hold the index."""
         if self._epoch < 0:
@@ -209,6 +238,7 @@ class SessionRecorder:
             logs=tuple(logs),
             screen_id=screen_id,
             duration_ms=duration_ms,
+            element_identity=element_identity,
         )
         self._steps.append(step)
         return step

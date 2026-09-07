@@ -317,3 +317,50 @@ def test_a_full_loop_run_against_a_real_page(driver, tmp_path):
     page = (tmp_path / "journal" / "journal.html")
     assert page.exists() and page.stat().st_size > 500
     assert journal.stats()["frames_stored"] > 0
+
+
+def test_triage_confirms_a_real_defect_by_replay(driver, tmp_path):
+    """Replay-based confirmation against a real browser, not the fake.
+
+    The planted dead button must survive a cold-start replay; a control that
+    works must not be confirmable as broken.
+    """
+    from pandabot_core.active_qa.triage import triage
+
+    loop = ExplorationLoop(driver, budgets=Budgets(min_seconds=0, max_actions=40),
+                           deck=Deck(cards=()))
+    result = loop.run()
+    assert result.findings, "the fixture should produce candidates"
+
+    report = triage(result.findings, driver=driver, recorder=result.recorder,
+                    attempts=3, required=2)
+
+    confirmed_rules = {t.rule for t in report.confirmed}
+    assert confirmed_rules, f"nothing confirmed; {report.stats()}"
+    assert {"U6", "U7"} & confirmed_rules, f"expected a planted defect: {report.stats()}"
+
+    # Working controls must never be confirmed as defective.
+    culprits = {t.finding.element_identity for t in report.confirmed}
+    assert 'h:[data-testid="good"]' not in culprits
+    assert 'h:[data-testid="echoes"]' not in culprits
+
+    # Every confirmed finding ships followable repro steps.
+    for t in report.confirmed:
+        assert t.trace is not None
+        assert t.trace.repro_steps()
+        assert t.confidence == "confirmed"
+
+
+def test_replay_survives_a_cold_start(driver):
+    """The no-checkpoint premise, proved on a real target: a trace recorded in
+    one browser context replays correctly in a brand new one."""
+    from pandabot_core.active_qa.triage import replay_once
+
+    loop = ExplorationLoop(driver, budgets=Budgets(min_seconds=0, max_actions=20),
+                           deck=Deck(cards=()))
+    result = loop.run()
+    last = result.recorder.steps[-1]
+    trace = result.recorder.trace_for(last.index)
+
+    _fired, completed = replay_once(driver, trace)
+    assert completed == len(trace), "replay diverged from the recorded run"

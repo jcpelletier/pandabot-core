@@ -20,6 +20,7 @@ here so far:
 :mod:`~.rules`                The universal UX rulebook, U1 to U12, as detectors
 :mod:`~.strategies`           The strategy deck, played when novelty stalls
 :mod:`~.loop`                 The exploration loop that ties it all together
+:mod:`~.triage`               Clustering and replay-confirmation before reporting
 :mod:`~.journal`              Running HTML narrative of the run, with frames
 :mod:`~.drivers`              Concrete drivers (web via Playwright, so far)
 :mod:`~.fake`                 A scriptable in-memory driver for tests
@@ -95,6 +96,14 @@ from pandabot_core.active_qa.rules import (
 )
 from pandabot_core.active_qa.recorder import SessionRecorder, Step, Trace
 from pandabot_core.active_qa.strategies import DECK, Card, Deck, implemented_cards
+from pandabot_core.active_qa.triage import (
+    FindingCluster,
+    TriagedFinding,
+    TriageReport,
+    cluster_findings,
+    replay_once,
+    triage,
+)
 
 __all__ = [
     # contract
@@ -113,6 +122,9 @@ __all__ = [
     "StepContext", "StateContext", "StateProbe",
     "run_step_detectors", "run_state_detectors", "run_session_detectors",
     "BLOCKER", "MAJOR", "MINOR", "POLISH", "severity_rank",
+    # triage
+    "triage", "cluster_findings", "replay_once",
+    "TriageReport", "TriagedFinding", "FindingCluster",
     # strategies
     "DECK", "Card", "Deck", "implemented_cards",
     # journal

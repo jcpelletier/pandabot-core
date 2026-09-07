@@ -527,6 +527,7 @@ class ExplorationLoop:
             logs=after.logs,
             screen_id=observation.screen_id,
             duration_ms=int(act_seconds * 1000),
+            element_identity=candidate.element_identity,
         )
 
         self._detect(action, observation, after, fingerprint,
