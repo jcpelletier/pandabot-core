@@ -143,10 +143,10 @@ class AndroidDriver:
 
     kind = "android"
     actions = ANDROID_ACTIONS
-    #: Element text is captured per node (including TextViews), so content
-    #: changes are caught through element identity. Flattened screen text stays
-    #: out, which keeps a ticking HUD counter from making every frame a new
-    #: state -- the same guarantee that matters for a game.
+    #: Screen text stays out of the fingerprint. Android targets are frequently
+    #: live -- an idle game's resource counters, a HUD clock -- and hashing
+    #: display text makes every frame a new state, which silently disables no-op
+    #: detection. A static app can opt into DOCUMENT_FINGERPRINT_POLICY.
     fingerprint_policy = DEFAULT_FINGERPRINT_POLICY
 
     def __init__(
@@ -335,14 +335,36 @@ class AndroidDriver:
         out: list[Element] = []
         seq = 0
         for node in root.iter("node"):
-            el = self._element_from(node, seq + 1)
+            el = self._element_from(node, seq + 1, self._descendant_label(node))
             if el is None:
                 continue
             seq += 1
             out.append(el)
         return out
 
-    def _element_from(self, node: ET.Element, seq: int) -> Element | None:
+    @staticmethod
+    def _descendant_label(node: ET.Element) -> str:
+        """Text from inside a node, for controls that carry none themselves.
+
+        Compose (and Flutter) put the click handler on a container and the text
+        on a child, so a button reads as unlabelled unless you look down. That
+        matters far more than cosmetics: with no resource id and no label,
+        Element.identity collapses to "r:button|l:" for *every* such control, so
+        two different buttons become one element as far as the coverage map is
+        concerned. Measured against Space-Trader: two buttons, one identity, and
+        thirty spurious findings.
+        """
+        for child in node.iter("node"):
+            if child is node:
+                continue
+            for attr in ("text", "content-desc"):
+                value = (child.attrib.get(attr) or "").strip()
+                if value:
+                    return " ".join(value.split())[:80]
+        return ""
+
+    def _element_from(self, node: ET.Element, seq: int,
+                      inherited_label: str = "") -> Element | None:
         a = node.attrib
         cls = a.get("class", "").rsplit(".", 1)[-1]
         role = _ROLES.get(cls, "")
@@ -376,14 +398,20 @@ class AndroidDriver:
         return Element(
             id=f"e{seq}",
             role=role,
-            label=" ".join((desc or text or "").split())[:80],
+            label=(" ".join((desc or text).split())[:80] if (desc or text)
+                   else inherited_label),
             bounds=bounds,  # type: ignore[arg-type]
             enabled=a.get("enabled") == "true",
             selected=a.get("selected") == "true" or a.get("checked") == "true",
             focusable=a.get("focusable") == "true",
-            # Every node reports its text, so a TextView changing content moves
-            # the fingerprint without needing the flattened-screen-text policy.
-            text=text if (role in ("textbox", "text") or text) else None,
+            # Only *editable* text is element state. A label's contents are
+            # display text, and in a live game they tick on their own: putting
+            # them here made every observation look like a state change, so a
+            # single screen produced 28 "states", U7 could never fire and U5
+            # fired 26 times on one control. Display text goes into
+            # Observation.text instead, where the fingerprint policy decides
+            # whether it counts. Same split the web driver makes.
+            text=text if role == "textbox" else None,
             handle=handle,
         )
 

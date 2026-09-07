@@ -177,7 +177,21 @@ class Element:
         """
         if self.handle:
             return f"h:{self.handle}"
-        return f"r:{self.role}|l:{self.label}"
+        if self.label:
+            return f"r:{self.role}|l:{self.label}"
+        # Neither a handle nor a label. Position is all that is left, and a
+        # colliding identity is far worse than an unstable one: two controls
+        # sharing an identity means the coverage map cannot tell them apart, the
+        # frontier marks both tried when only one is, and actions bind to
+        # whichever came first. Quantised to an 8px grid so small reflow does
+        # not invent elements -- though any grid has boundaries, so a control
+        # that straddles one can still change identity. That is a weaker
+        # guarantee than a handle or a label, which is exactly why a driver's
+        # identity_quality() reports when a run is leaning on it.
+        if self.bounds:
+            box = ",".join(str(v // 8 * 8) for v in self.bounds)
+            return f"r:{self.role}|b:{box}"
+        return f"r:{self.role}|i:{self.id}"
 
     @property
     def interactive(self) -> bool:

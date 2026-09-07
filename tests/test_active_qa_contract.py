@@ -325,3 +325,38 @@ def test_logs_are_drained_not_repeated():
 
 def test_health_reports_ok_for_a_live_app():
     assert _two_screen_app().health() == Health(ok=True)
+
+
+# --- Identity collision ---------------------------------------------------
+
+def test_unlabelled_controls_do_not_share_an_identity():
+    """The Space-Trader pilot's failure: Compose with no test tags gives two
+    buttons with no handle and no label. Collapsing them to one identity made
+    the coverage map unable to tell them apart and produced thirty spurious
+    findings against a control that did not exist."""
+    a = Element(id="e1", role="button", bounds=(0, 100, 400, 180))
+    b = Element(id="e2", role="button", bounds=(0, 220, 400, 300))
+    assert a.identity != b.identity
+
+
+def test_positional_identity_survives_a_small_nudge():
+    """Quantised to an 8px grid. Any grid has boundaries, so this is a weaker
+    guarantee than a handle or a label -- which is why identity_quality()
+    reports when a run depends on it."""
+    a = Element(id="e1", role="button", bounds=(96, 96, 400, 176))
+    nudged = Element(id="e7", role="button", bounds=(98, 99, 402, 178))
+    assert a.identity == nudged.identity
+
+
+def test_a_label_still_wins_over_position():
+    """Position is the last resort, not the default: a labelled control keeps a
+    stable identity even when it moves."""
+    here = Element(id="e1", role="button", label="Save", bounds=(0, 0, 10, 10))
+    there = Element(id="e2", role="button", label="Save", bounds=(0, 900, 10, 910))
+    assert here.identity == there.identity == "r:button|l:Save"
+
+
+def test_identity_without_a_handle_label_or_bounds_still_differs():
+    a = Element(id="e1", role="button")
+    b = Element(id="e2", role="button")
+    assert a.identity != b.identity
