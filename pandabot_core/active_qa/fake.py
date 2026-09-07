@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from pandabot_core.active_qa.contract import (
+    DEFAULT_FINGERPRINT_POLICY,
     Action, ActResult, Driver, Element, Health, Observation,
 )
 
@@ -65,6 +66,10 @@ class FakeDriver:
     """
 
     kind = "fake"
+    #: The conservative default: bounds and screen text excluded. The fake is
+    #: used to prove the ambient-motion guarantee, which is exactly what that
+    #: policy exists for.
+    fingerprint_policy = DEFAULT_FINGERPRINT_POLICY
 
     def __init__(
         self,

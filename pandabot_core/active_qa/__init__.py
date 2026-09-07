@@ -21,6 +21,7 @@ here so far:
 :mod:`~.strategies`           The strategy deck, played when novelty stalls
 :mod:`~.loop`                 The exploration loop that ties it all together
 :mod:`~.journal`              Running HTML narrative of the run, with frames
+:mod:`~.drivers`              Concrete drivers (web via Playwright, so far)
 :mod:`~.fake`                 A scriptable in-memory driver for tests
 ============================  ====================================================
 
@@ -33,6 +34,7 @@ from __future__ import annotations
 from pandabot_core.active_qa.contract import (
     ACTION_KINDS,
     DEFAULT_FINGERPRINT_POLICY,
+    DOCUMENT_FINGERPRINT_POLICY,
     STRICT_FINGERPRINT_POLICY,
     Action,
     ActionKind,
@@ -43,6 +45,7 @@ from pandabot_core.active_qa.contract import (
     FingerprintPolicy,
     Health,
     Observation,
+    fingerprint_policy_for,
     supported_actions,
 )
 from pandabot_core.active_qa.coverage import (
@@ -98,7 +101,8 @@ __all__ = [
     "ACTION_KINDS", "Action", "ActionKind", "ActResult",
     "Element", "Observation", "Health",
     "FingerprintPolicy", "DEFAULT_FINGERPRINT_POLICY", "STRICT_FINGERPRINT_POLICY",
-    "Driver", "DriverError", "supported_actions",
+    "DOCUMENT_FINGERPRINT_POLICY",
+    "Driver", "DriverError", "supported_actions", "fingerprint_policy_for",
     # coverage
     "Candidate", "CoverageMap", "Edge", "StateNode",
     "Frontier", "PriorityWeights", "DEFAULT_WEIGHTS", "default_candidates",

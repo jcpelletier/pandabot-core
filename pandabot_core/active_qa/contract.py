@@ -41,7 +41,8 @@ __all__ = [
     "ActionKind", "ACTION_KINDS", "Action", "ActResult",
     "Element", "Observation", "Health",
     "FingerprintPolicy", "DEFAULT_FINGERPRINT_POLICY", "STRICT_FINGERPRINT_POLICY",
-    "Driver", "DriverError",
+    "DOCUMENT_FINGERPRINT_POLICY",
+    "Driver", "DriverError", "fingerprint_policy_for",
 ]
 
 
@@ -250,6 +251,18 @@ STRICT_FINGERPRINT_POLICY = FingerprintPolicy(
     include_screen_text=True,
 )
 
+#: For document-like targets: web pages, forms, settings screens. Screen text
+#: counts as state, because on the web a great many real changes are text-only
+#: -- a validation message appearing, an error being shown, a panel opening that
+#: adds copy but no controls. Excluding it (as the default policy does, to
+#: survive a swaying boss) makes a working button look dead and puts rule U9 out
+#: of reach entirely. Bounds stay out: reflow moves things for reasons that are
+#: not state changes, and rule U10 watches bounds directly anyway.
+DOCUMENT_FINGERPRINT_POLICY = FingerprintPolicy(
+    include_bounds=False,
+    include_screen_text=True,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Observation:
@@ -385,6 +398,13 @@ class Driver(Protocol):
     #: Short target kind, e.g. ``"web"``, ``"android"``, ``"roblox"``.
     kind: str
 
+    #: How this target should be fingerprinted. Every driver declares one. It lives on the driver because
+    #: ambient motion is a property of the *target*, not of the engine -- a web
+    #: page is mostly still and its text is meaningful state, while a game world
+    #: never stops moving and its on-screen text is half clocks and counters.
+    #: One global policy cannot be right for both.
+    fingerprint_policy: "FingerprintPolicy"
+
     def observe(self) -> Observation:
         """Capture the current state. Must not change it."""
         ...
@@ -401,6 +421,11 @@ class Driver(Protocol):
     def health(self) -> Health:
         """Whether the target is alive. Called after every action."""
         ...
+
+
+def fingerprint_policy_for(driver: Driver) -> FingerprintPolicy:
+    """The policy a driver asks for, or the conservative default."""
+    return getattr(driver, "fingerprint_policy", None) or DEFAULT_FINGERPRINT_POLICY
 
 
 def supported_actions(driver: Driver) -> frozenset[str]:

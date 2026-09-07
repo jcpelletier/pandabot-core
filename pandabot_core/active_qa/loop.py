@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Protocol, Sequence
 
 from pandabot_core.active_qa.contract import (
-    Action, Driver, Observation, supported_actions,
+    Action, Driver, Observation, fingerprint_policy_for, supported_actions,
 )
 from pandabot_core.active_qa.coverage import (
     Candidate, CoverageMap, Frontier, PriorityWeights, default_candidates,
@@ -240,6 +240,7 @@ class ExplorationLoop:
         self.expectations: dict[str, dict[str, str]] = {}
 
         self._supported = supported_actions(driver)
+        self._policy = fingerprint_policy_for(driver)
         self._stop = False
         self._pause = False
         self._started_at = 0.0
@@ -359,7 +360,7 @@ class ExplorationLoop:
     def _observe(self) -> tuple[Observation, str]:
         start = self.clock()
         observation = self.driver.observe()
-        fingerprint = observation.compute_fingerprint()
+        fingerprint = observation.compute_fingerprint(self._policy)
         self.stats.observe_seconds += self.clock() - start
         return observation, fingerprint
 
