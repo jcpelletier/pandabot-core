@@ -156,6 +156,14 @@ class Element:
     # driver, but it is the strongest available identity signal, so
     # `identity` prefers it.
     handle: str | None = None
+    #: Hash of this element's *rendered pixels*, when the driver can supply one.
+    #: Rules U1 to U3 are "does this control look different while pressed /
+    #: hovered / focused", which is a pixel question, so the driver (which has
+    #: the screenshot) answers it and the detectors compare hashes. Deliberately
+    #: never part of the fingerprint: a render hash moves with every animation
+    #: frame, and letting it count as state would undo the ambient-motion
+    #: guarantee that makes no-op detection work at all.
+    render_hash: str | None = None
 
     @property
     def identity(self) -> str:
@@ -194,6 +202,7 @@ class Element:
             focusable=d.get("focusable", False),
             text=d.get("text"),
             handle=d.get("handle"),
+            render_hash=d.get("render_hash"),
         )
 
 

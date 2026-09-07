@@ -31,6 +31,7 @@ All the bots import from it — **Pandabot**, **Pandabot-QA**, **Pandabot-Dev**,
 | `pandabot_core.pm.github` | functions | GitHub Issues adapter (list/get/search/create/update issues, sub-issues, milestones; `add_sub_issue` links an existing issue under a parent across repos — the tier-3 task ↔ product story link; `add_comment`, `list_comments`, `set_status_label`, `list_children_with_status` for the goal workflow) |
 | `pandabot_core.goals` | functions, `STATUS_*` | Persistent long-term-goal store (epics + story runs in `scheduler.db`) and the shared status-label vocabulary the goal driver, QA, and devops all use |
 | `pandabot_core.channels` | `BotChannelMap`, `make_message_bot_tool`, `send_to_bot`, `attach_message_bot` | Channel-as-inbox inter-bot messaging mechanism (deployment-agnostic; map via `BOT_CHANNELS`) |
+| `pandabot_core.active_qa` | `Driver`, `Observation`, `Action`, `SessionRecorder`, `CoverageMap`, `Frontier`, `RULES`, `FakeDriver` | Exploratory (active) QA engine: the uniform driver contract, full-session traces, the state graph, the frontier policy, and the universal UX rulebook (U1-U12). Design: `ACTIVE_QA.md` in PandaEcosystem |
 
 ## Coding conventions
 
