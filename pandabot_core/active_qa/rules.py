@@ -505,9 +505,20 @@ class LayoutShiftRule:
 
 
 class DeadEndRule:
-    """U12. A whole-session question, so it runs once at the end against the map."""
+    """U12. A whole-session question, so it runs once at the end against the map.
+
+    Requires real evidence before accusing a state of being a trap. A run that
+    stopped after four actions has not established that a screen has no exit, it
+    has only established that it ran out of budget -- and a short smoke run was
+    duly reporting every screen it touched as a dead end. So a state must have
+    had at least ``min_attempts`` actions tried in it, and every interactive
+    control must have been touched at least once.
+    """
 
     rule_id = "U12"
+
+    def __init__(self, min_attempts: int = 3) -> None:
+        self.min_attempts = min_attempts
 
     def inspect(self, coverage: CoverageMap) -> list[Finding]:
         r = RULES[self.rule_id]
@@ -515,6 +526,11 @@ class DeadEndRule:
         for fingerprint in coverage.dead_ends():
             node = coverage.states.get(fingerprint)
             if node is None or node.visits == 0:
+                continue
+            tried = sum(node.element_touches.values())
+            untouched = [k for k, v in node.element_touches.items() if v == 0]
+            if tried < self.min_attempts or untouched:
+                # Not enough was tried here to call it a trap.
                 continue
             screen = node.screen_id or fingerprint[:16]
             out.append(Finding(

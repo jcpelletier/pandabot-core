@@ -315,10 +315,34 @@ def test_u12_fires_on_a_state_with_no_exit():
     for fp in ("a", "trap"):
         m.observe(_obs(_btn("x")), fp)
     m.record_transition("a", Candidate(state="a", element_identity="h:#x", kind="click"), "trap")
-    m.record_transition("trap", Candidate(state="trap", element_identity="h:#x", kind="click"), "trap")
+    # Every control tried, several times, and still no way out.
+    for i in range(3):
+        m.record_transition(
+            "trap", Candidate(state="trap", element_identity="h:#x",
+                              kind="click", value=i), "trap")
     findings = DeadEndRule().inspect(m)
     assert [f.state for f in findings] == ["trap"]
     assert findings[0].rule == "U12"
+
+
+def test_u12_does_not_accuse_a_state_it_barely_visited():
+    """A run that stopped early has not proved a screen is a trap, only that it
+    ran out of budget. A short smoke run was reporting every screen it touched."""
+    m = CoverageMap()
+    m.observe(_obs(_btn("x"), _btn("y")), "shallow")
+    m.record_transition("shallow", Candidate(state="shallow",
+                                             element_identity="h:#x",
+                                             kind="click"), "shallow")
+    assert DeadEndRule().inspect(m) == []
+
+
+def test_u12_requires_every_control_to_have_been_tried():
+    m = CoverageMap()
+    m.observe(_obs(_btn("x"), _btn("untried")), "state")
+    for i in range(4):
+        m.record_transition("state", Candidate(state="state", element_identity="h:#x",
+                                               kind="click", value=i), "state")
+    assert DeadEndRule().inspect(m) == [], "an untried control might be the way out"
 
 
 def test_u12_is_quiet_when_every_state_has_an_exit():

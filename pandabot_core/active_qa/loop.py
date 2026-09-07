@@ -70,6 +70,9 @@ class Budgets:
     stall_threshold: int = 25
     #: Give up entirely after this many consecutive relaunches find nothing new.
     max_barren_relaunches: int = 3
+    #: How many times to fight a system dialog for the foreground before
+    #: concluding the app is unreachable.
+    max_foreign_escapes: int = 5
 
 
 class StopReason:
@@ -246,6 +249,7 @@ class ExplorationLoop:
         self._started_at = 0.0
         self._steps_since_new_state = 0
         self._barren_relaunches = 0
+        self._foreign_escapes = 0
 
     # -- journal -----------------------------------------------------------
     def _log(self, kind: str, text: str, **fields: Any) -> None:
@@ -300,6 +304,18 @@ class ExplorationLoop:
                 break
 
             observation, fingerprint = self._observe()
+
+            # Something that is not the app under test is on screen: an Android
+            # permission dialog, a share sheet, a browser popup. Exploring it
+            # means testing someone else's software and filing findings against
+            # our own, so recover instead. A driver that cannot say is assumed
+            # to be in its app.
+            if observation.meta.get("in_app") is False:
+                if not self._escape_foreign_ui(observation):
+                    stop_reason = StopReason.CRASHED
+                    break
+                continue
+
             node, is_new = self.coverage.observe(
                 observation, fingerprint, step=len(self.recorder))
             if is_new:
@@ -346,6 +362,25 @@ class ExplorationLoop:
             self.journal.render()
         return LoopResult(stop_reason, self.stats, self.findings,
                           self.coverage, self.recorder)
+
+    def _escape_foreign_ui(self, observation: Observation) -> bool:
+        """Try to get back into the app. Returns False when it is hopeless."""
+        foreign = observation.meta.get("foreground_package", "something else")
+        self._foreign_escapes += 1
+        if self._foreign_escapes > self.budgets.max_foreign_escapes:
+            self._log(EventKind.NOTE,
+                      f"Giving up: {foreign} keeps taking the foreground and the "
+                      "app under test cannot be reached.")
+            return False
+        self._log(EventKind.NOTE,
+                  f"{foreign} is in the foreground, not the app under test. "
+                  "Recovering rather than exploring it.",
+                  screenshot=observation.screenshot,
+                  detail={"foreground": foreign})
+        recover = getattr(self.driver, "recover", None)
+        if callable(recover) and recover():
+            return True
+        return self._relaunch()
 
     # -- phases ------------------------------------------------------------
     def _check_budgets(self) -> str | None:
