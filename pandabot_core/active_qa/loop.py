@@ -35,6 +35,7 @@ from pandabot_core.active_qa.contract import (
 from pandabot_core.active_qa.coverage import (
     Candidate, CoverageMap, Frontier, PriorityWeights, default_candidates,
 )
+from pandabot_core.active_qa.journal import EventKind, Journal
 from pandabot_core.active_qa.recorder import SessionRecorder, Step
 from pandabot_core.active_qa.rules import (
     Finding, StateContext, StateProbe, StepContext,
@@ -209,6 +210,7 @@ class ExplorationLoop:
         weights: PriorityWeights | None = None,
         waived_rules: Iterable[str] = (),
         session_id: str = "",
+        journal: Journal | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] | None = None,
         probe_kinds: Sequence[str] = ("press_hold", "hover", "focus"),
@@ -218,6 +220,7 @@ class ExplorationLoop:
         self.advisor = advisor or _NoAdvisor()
         self.deck = deck if deck is not None else Deck()
         self.waived_rules = tuple(waived_rules)
+        self.journal = journal
         self.clock = clock
         # Waiting is a real action (the idle card), but tests must not actually
         # sleep for 60s, so it is injectable and defaults to not sleeping at all
@@ -242,6 +245,11 @@ class ExplorationLoop:
         self._started_at = 0.0
         self._steps_since_new_state = 0
         self._barren_relaunches = 0
+
+    # -- journal -----------------------------------------------------------
+    def _log(self, kind: str, text: str, **fields: Any) -> None:
+        if self.journal is not None:
+            self.journal.record(kind, text, **fields)
 
     # -- findings ----------------------------------------------------------
     def _add(self, findings: Iterable[Finding]) -> int:
@@ -277,6 +285,11 @@ class ExplorationLoop:
     def run(self) -> LoopResult:
         self._started_at = self.clock()
         self.recorder.mark_launch()
+        self._log(EventKind.SESSION_START,
+                  f"Starting exploration of a {self.driver.kind} target. "
+                  f"Floor {self.budgets.min_seconds / 60:.0f} min, "
+                  f"ceiling {self.budgets.max_seconds / 60:.0f} min, "
+                  f"at most {self.budgets.max_actions} actions.")
 
         stop_reason = StopReason.EXHAUSTED
         while True:
@@ -322,6 +335,14 @@ class ExplorationLoop:
         self.stats.detect_seconds += self.clock() - detect_start
         self.stats.findings = len(self.findings)
 
+        self._log(EventKind.SESSION_END,
+                  f"Finished: {stop_reason}. "
+                  f"{self.stats.actions} actions, "
+                  f"{self.stats.states_discovered} screens, "
+                  f"{len(self.findings)} findings, "
+                  f"{self.stats.model_calls} model calls.")
+        if self.journal is not None:
+            self.journal.render()
         return LoopResult(stop_reason, self.stats, self.findings,
                           self.coverage, self.recorder)
 
@@ -345,8 +366,17 @@ class ExplorationLoop:
     def _on_new_state(self, observation: Observation, fingerprint: str, node) -> None:
         """Seed a newly discovered state: baseline candidates, rulebook probes,
         and the single model call this state will ever get."""
-        self.frontier.extend(default_candidates(
+        seeded = self.frontier.extend(default_candidates(
             observation, fingerprint, supported=self._supported))
+        controls = len(observation.interactive())
+        self._log(EventKind.STATE_NEW,
+                  (f"New screen. {controls} interactive control(s); "
+                   f"queued {seeded} thing(s) to try."
+                   if not observation.is_blind else
+                   "New screen, but the driver could supply no element tree, "
+                   "so this state is being explored blind."),
+                  screen=observation.screen_id, screenshot=observation.screenshot,
+                  step=len(self.recorder))
 
         probes = self._run_probes(observation)
         if probes:
@@ -363,6 +393,14 @@ class ExplorationLoop:
         if orientation.expectations or orientation.curiosity or orientation.notes:
             self.stats.model_calls += 1
         node.oriented = True
+        if orientation.notes or orientation.expectations:
+            promises = "; ".join(f"{k} -> {v}" for k, v in
+                                 list(orientation.expectations.items())[:6])
+            self._log(EventKind.MODEL_ORIENT,
+                      orientation.notes or "Oriented on this screen.",
+                      screen=observation.screen_id,
+                      detail={"expectations": len(orientation.expectations),
+                              **({"promises": promises} if promises else {})})
         if orientation.expectations:
             self.expectations[fingerprint] = dict(orientation.expectations)
         for identity, score in orientation.curiosity.items():
@@ -433,6 +471,16 @@ class ExplorationLoop:
         after, after_fingerprint = self._observe()
         self.coverage.record_transition(fingerprint, candidate, after_fingerprint)
 
+        outcome = ("state changed" if after_fingerprint != fingerprint
+                   else "nothing changed")
+        if not result.ok:
+            outcome = f"did not land: {result.error}"
+        self._log(EventKind.ACTION,
+                  f"{action.describe()} — {outcome}.",
+                  screen=observation.screen_id, screenshot=after.screenshot,
+                  step=len(self.recorder),
+                  detail={"why": action.reason} if action.reason else {})
+
         step = self.recorder.record(
             action,
             before_fingerprint=fingerprint,
@@ -459,6 +507,10 @@ class ExplorationLoop:
                 screen_id=observation.screen_id,
                 element_identity=candidate.element_identity,
             )])
+            self._log(EventKind.CRASH,
+                      f"The app crashed: {health.message or 'no message'}",
+                      severity="blocker", rule="crash",
+                      screen=observation.screen_id, step=step.index)
             return self._relaunch()
         return True
 
@@ -482,8 +534,15 @@ class ExplorationLoop:
             self.stats.model_seconds += elapsed
             if not isinstance(self.advisor, _NoAdvisor):
                 self.stats.model_calls += 1
-            if keep:
-                self._add([finding])
+            if keep and self._add([finding]):
+                self._log(EventKind.FINDING, finding.summary,
+                          rule=finding.rule, severity=finding.severity,
+                          screen=finding.screen_id, step=finding.step_index,
+                          screenshot=after.screenshot)
+            elif not keep:
+                self._log(EventKind.MODEL_JUDGE,
+                          f"Dismissed a {finding.rule} candidate: {finding.summary}",
+                          rule=finding.rule, screen=finding.screen_id)
 
     def _find_more_work(self, observation: Observation, fingerprint: str) -> bool:
         """Nothing queued here. Draw a card, walk somewhere, or relaunch."""
@@ -492,6 +551,12 @@ class ExplorationLoop:
             card, candidates = self.deck.play(observation, fingerprint)
             if card is not None:
                 self.frontier.extend(candidates)
+                self._log(EventKind.CARD,
+                          f'Novelty stalled, so playing "{card.name}": '
+                          f'{card.description.lower()}. '
+                          f"Queued {len(candidates)} new thing(s) to try.",
+                          screen=observation.screen_id,
+                          detail={"card": card.name})
                 self.stats.cards_played += 1
                 self._steps_since_new_state = 0
                 return True
@@ -520,6 +585,10 @@ class ExplorationLoop:
         if self._barren_relaunches >= self.budgets.max_barren_relaunches:
             return False
         self._barren_relaunches += 1
+        self._log(EventKind.RELAUNCH,
+                  "Nothing reachable left to try, and there are no saved states "
+                  "to jump to, so restarting from a cold start and re-walking.",
+                  detail={"relaunch": self._barren_relaunches})
         self.driver.relaunch()
         self.recorder.mark_launch()
         self.stats.relaunches += 1

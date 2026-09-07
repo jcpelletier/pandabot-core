@@ -20,6 +20,7 @@ here so far:
 :mod:`~.rules`                The universal UX rulebook, U1 to U12, as detectors
 :mod:`~.strategies`           The strategy deck, played when novelty stalls
 :mod:`~.loop`                 The exploration loop that ties it all together
+:mod:`~.journal`              Running HTML narrative of the run, with frames
 :mod:`~.fake`                 A scriptable in-memory driver for tests
 ============================  ====================================================
 
@@ -55,6 +56,13 @@ from pandabot_core.active_qa.coverage import (
     default_candidates,
 )
 from pandabot_core.active_qa.fake import FakeDriver, FakeScreen, ambient_noise
+from pandabot_core.active_qa.journal import (
+    EventKind,
+    FrameStore,
+    Journal,
+    JournalEvent,
+    render_html,
+)
 from pandabot_core.active_qa.loop import (
     Advisor,
     Budgets,
@@ -103,6 +111,8 @@ __all__ = [
     "BLOCKER", "MAJOR", "MINOR", "POLISH", "severity_rank",
     # strategies
     "DECK", "Card", "Deck", "implemented_cards",
+    # journal
+    "Journal", "JournalEvent", "EventKind", "FrameStore", "render_html",
     # loop
     "ExplorationLoop", "Budgets", "LoopResult", "LoopStats", "StopReason",
     "Advisor", "Orientation",
