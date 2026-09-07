@@ -44,7 +44,7 @@ __all__ = [
     "PressedStateRule", "HoverStateRule", "FocusIndicatorRule",
     "DisabledMeansDisabledRule", "InputEchoRule", "NoOpRule",
     "LayoutShiftRule", "DeadEndRule",
-    "step_detectors", "state_detectors", "session_detectors",
+    "step_detectors", "state_detectors", "session_detectors", "SUPERSEDES",
     "run_step_detectors", "run_state_detectors", "run_session_detectors",
 ]
 
@@ -423,6 +423,13 @@ class NoOpRule:
         el = ctx.target()
         if el is None or not el.enabled:
             return []
+        # Writing a field's existing contents into it changes nothing, and
+        # nothing is the correct outcome. The strategy deck types "" into empty
+        # fields constantly (the empty-and-blank card), so without this the
+        # deck manufactures a false positive for every text field it touches --
+        # measured at 10 of 11 spurious U7 findings on a 400-action run.
+        if ctx.action.kind == "type" and el.text is not None                 and str(ctx.action.value) == el.text:
+            return []
         r = RULES[self.rule_id]
         label = el.label or el.identity
         promise = ctx.expectations.get(el.identity, "")
@@ -545,6 +552,29 @@ def _filter(findings: Iterable[Finding], waived: Iterable[str]) -> list[Finding]
     return [f for f in findings if f.rule not in waived]
 
 
+#: When several rules fire on the same control in the same state, the more
+#: specific one wins and the other is dropped. A field that swallows input also
+#: produces no state change, so U6 and U7 both fire correctly -- but they are one
+#: defect, and reporting it twice under two rules is how a report loses trust.
+#: Key is the rule that wins; value is what it supersedes.
+SUPERSEDES: dict[str, frozenset[str]] = {
+    "U6": frozenset({"U7"}),   # "the field ate my text" explains "nothing happened"
+    "U5": frozenset({"U7"}),   # a disabled control acting explains the rest
+}
+
+
+def _apply_precedence(findings: list[Finding]) -> list[Finding]:
+    winners = {(f.rule, f.element_identity, f.state) for f in findings}
+    suppressed: set[tuple[str, str, str]] = set()
+    for rule_id, beaten in SUPERSEDES.items():
+        for (r, el, st) in winners:
+            if r != rule_id:
+                continue
+            suppressed.update((b, el, st) for b in beaten)
+    return [f for f in findings
+            if (f.rule, f.element_identity, f.state) not in suppressed]
+
+
 def run_step_detectors(ctx: StepContext, *, waived: Iterable[str] = (),
                        detectors: Sequence[StepDetector] | None = None) -> list[Finding]:
     """Run every per-step rule. ``waived`` drops rules a project has excused.
@@ -556,7 +586,7 @@ def run_step_detectors(ctx: StepContext, *, waived: Iterable[str] = (),
     out: list[Finding] = []
     for det in (detectors if detectors is not None else step_detectors()):
         out.extend(det.inspect(ctx))
-    return _filter(out, waived)
+    return _filter(_apply_precedence(out), waived)
 
 
 def run_state_detectors(ctx: StateContext, *, waived: Iterable[str] = (),

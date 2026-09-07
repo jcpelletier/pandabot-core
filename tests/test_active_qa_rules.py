@@ -422,7 +422,10 @@ def test_a_planted_swallowing_field_is_caught_end_to_end():
         after_fp=after.compute_fingerprint(),
         ok=result.ok,
     ))
-    assert [f.rule for f in findings] == ["U6", "U7"]
+    # U6 supersedes U7 here: a field that swallows input also produces no state
+    # change, so both fire correctly -- but it is one defect, and reporting it
+    # under two rules is how a report loses trust.
+    assert [f.rule for f in findings] == ["U6"]
     assert findings[0].severity == BLOCKER
 
 
@@ -454,3 +457,49 @@ def test_no_findings_on_a_well_behaved_app():
             ok=result.ok,
         )))
     assert findings == []
+
+
+# --- Rule precedence ------------------------------------------------------
+
+def test_a_more_specific_rule_supersedes_the_general_one():
+    """One defect, one finding, reported by the rule that explains it best."""
+    ctx = _step(Action(kind="type", target="e_name", value="hello"),
+                _obs(_field("")), _obs(_field("")))
+    rules = [f.rule for f in run_step_detectors(ctx)]
+    assert rules == ["U6"], "U6 explains the no-op, so U7 should not also fire"
+
+
+def test_precedence_is_scoped_to_the_same_control_and_state():
+    """A U6 on one field must not silence a genuine U7 on a different control."""
+    from pandabot_core.active_qa.rules import _apply_precedence
+    findings = [
+        Finding(rule="U6", summary="", observed="", expected="",
+                element_identity="h:#field", state="s1"),
+        Finding(rule="U7", summary="", observed="", expected="",
+                element_identity="h:#field", state="s1"),
+        Finding(rule="U7", summary="", observed="", expected="",
+                element_identity="h:#button", state="s1"),
+    ]
+    kept = {(f.rule, f.element_identity) for f in _apply_precedence(findings)}
+    assert kept == {("U6", "h:#field"), ("U7", "h:#button")}
+
+
+def test_disabled_control_findings_also_supersede_the_no_op():
+    el = _btn("go", enabled=False)
+    ctx = _step(Action(kind="click", target="e_go"), _obs(el), _obs(el),
+                before_fp="fp:a", after_fp="fp:b")
+    assert [f.rule for f in run_step_detectors(ctx)] == ["U5"]
+
+
+def test_retyping_a_fields_existing_contents_is_not_a_no_op():
+    """The empty-and-blank card types "" into empty fields constantly. Writing
+    what is already there changes nothing, and nothing is correct."""
+    ctx = _step(Action(kind="type", target="e_name", value=""),
+                _obs(_field("")), _obs(_field("")))
+    assert run_step_detectors(ctx) == []
+
+
+def test_typing_something_new_that_does_nothing_still_fires():
+    ctx = _step(Action(kind="type", target="e_name", value="abc"),
+                _obs(_field("existing")), _obs(_field("existing")))
+    assert [f.rule for f in run_step_detectors(ctx)] == ["U6"]
