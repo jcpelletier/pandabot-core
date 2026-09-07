@@ -392,8 +392,10 @@ class NoOpRule:
     observable change. Three deliberate restrictions keep the false-positive
     rate survivable:
 
-    * Only *activating* kinds count. ``hover`` and ``focus`` are probes; a hover
-      that changes no application state is correct behaviour, not a defect.
+    * Only *pointer* activation counts. ``hover`` and ``focus`` are probes, and
+      a hover that changes no application state is correct behaviour. ``key`` is
+      excluded too: a control that ignores Enter is a keyboard-reachability
+      defect for the keyboard pack, not a dead affordance.
     * A failed action is not a no-op. The driver already said why it did not
       land, and that is a different finding.
     * The expectation record, when one exists, is quoted in the finding. That is
@@ -408,7 +410,12 @@ class NoOpRule:
     """
 
     rule_id = "U7"
-    _ACTIVATING = frozenset({"click", "type", "key", "drag", "back"})
+    # Pointer and text activation only. `key` is deliberately absent: "Enter
+    # does not activate this control" is a keyboard-reachability defect (WCAG
+    # 2.1.1), which belongs to the keyboard pack, not here. Folding it in would
+    # make U7 fire on every control of every app that lacks keyboard handlers
+    # the moment the keyboard-only card is played, burying the real findings.
+    _ACTIVATING = frozenset({"click", "type", "drag", "back"})
 
     def inspect(self, ctx: StepContext) -> list[Finding]:
         if ctx.action.kind not in self._ACTIVATING or not ctx.ok or ctx.changed:

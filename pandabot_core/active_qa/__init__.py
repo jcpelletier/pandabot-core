@@ -18,6 +18,8 @@ here so far:
 :mod:`~.recorder`             Full-session action recording and replayable traces
 :mod:`~.coverage`             State graph and the frontier queue that picks the next action
 :mod:`~.rules`                The universal UX rulebook, U1 to U12, as detectors
+:mod:`~.strategies`           The strategy deck, played when novelty stalls
+:mod:`~.loop`                 The exploration loop that ties it all together
 :mod:`~.fake`                 A scriptable in-memory driver for tests
 ============================  ====================================================
 
@@ -53,6 +55,15 @@ from pandabot_core.active_qa.coverage import (
     default_candidates,
 )
 from pandabot_core.active_qa.fake import FakeDriver, FakeScreen, ambient_noise
+from pandabot_core.active_qa.loop import (
+    Advisor,
+    Budgets,
+    ExplorationLoop,
+    LoopResult,
+    LoopStats,
+    Orientation,
+    StopReason,
+)
 from pandabot_core.active_qa.rules import (
     BLOCKER,
     MAJOR,
@@ -72,6 +83,7 @@ from pandabot_core.active_qa.rules import (
     severity_rank,
 )
 from pandabot_core.active_qa.recorder import SessionRecorder, Step, Trace
+from pandabot_core.active_qa.strategies import DECK, Card, Deck, implemented_cards
 
 __all__ = [
     # contract
@@ -89,6 +101,11 @@ __all__ = [
     "StepContext", "StateContext", "StateProbe",
     "run_step_detectors", "run_state_detectors", "run_session_detectors",
     "BLOCKER", "MAJOR", "MINOR", "POLISH", "severity_rank",
+    # strategies
+    "DECK", "Card", "Deck", "implemented_cards",
+    # loop
+    "ExplorationLoop", "Budgets", "LoopResult", "LoopStats", "StopReason",
+    "Advisor", "Orientation",
     # fake
     "FakeDriver", "FakeScreen", "ambient_noise",
 ]
