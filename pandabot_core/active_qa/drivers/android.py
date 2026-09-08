@@ -581,6 +581,15 @@ class AndroidDriver:
                           details={"in_app": False, "foreground": foreground})
         return Health(ok=True, details={"in_app": True})
 
+    # -- vision mode -------------------------------------------------------
+    def accept_vision_elements(self, elements: Sequence[Element]) -> None:
+        """Register model-proposed controls so act() can aim at them.
+
+        Nothing else is needed here: this driver already taps the centre of an
+        element's bounds, so a proposed control drives exactly like a real one.
+        """
+        self._id_to_element.update({el.id: el for el in elements if el.bounds})
+
     # -- device facts ------------------------------------------------------
     def density(self) -> int:
         """Screen density in dpi, cached.

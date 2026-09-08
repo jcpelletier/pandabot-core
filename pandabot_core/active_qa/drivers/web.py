@@ -232,6 +232,8 @@ class PlaywrightDriver:
         #: Element.id -> selector, rebuilt on every observation. Ids are only
         #: meaningful within the observation that produced them.
         self._id_to_handle: dict[str, str] = {}
+        #: Bounds of model-proposed controls in vision mode, by element id.
+        self._vision_boxes: dict[str, tuple[int, int, int, int]] = {}
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -432,6 +434,11 @@ class PlaywrightDriver:
             page.go_back(timeout=self.nav_timeout_ms)
             return
 
+        box = self._vision_boxes.get(action.target or "")
+        if box is not None:
+            self._act_at(page, action, box)
+            return
+
         locator = page.locator(self._selector_for(action)).first
 
         if kind == "click":
@@ -496,6 +503,38 @@ class PlaywrightDriver:
             except Exception:  # pragma: no cover
                 pass
             self._held = None
+
+    # -- vision mode -------------------------------------------------------
+    def accept_vision_elements(self, elements: Sequence[Element]) -> None:
+        """Register model-proposed controls so act() can aim at them.
+
+        They have bounds and no selector, so they are driven by coordinate
+        rather than by locator. Registered per observation, like the tree-backed
+        ids they stand in for.
+        """
+        self._vision_boxes = {el.id: el.bounds for el in elements if el.bounds}
+
+    def _act_at(self, page: Any, action: Action, box: tuple[int, int, int, int]) -> None:
+        x, y = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        kind = action.kind
+        if kind == "click":
+            page.mouse.click(x, y)
+        elif kind == "type":
+            page.mouse.click(x, y)
+            page.keyboard.type(str(action.value))
+        elif kind == "key":
+            page.keyboard.press(str(action.value or "Enter"))
+        elif kind == "hover":
+            page.mouse.move(x, y)
+        elif kind == "press_hold":
+            page.mouse.move(x, y)
+            page.mouse.down()
+            self._held = "held"
+        elif kind == "scroll":
+            page.mouse.move(x, y)
+            page.mouse.wheel(0, int(action.value or 400))
+        else:
+            raise RuntimeError(f"{kind!r} cannot be driven by coordinate")
 
     # -- accessibility -----------------------------------------------------
     def run_axe(self, axe_source: str, *, tags: Sequence[str] = ()) -> dict[str, Any]:

@@ -61,6 +61,10 @@ class SessionInfo:
     waivers: Mapping[str, str] = field(default_factory=dict)
     #: Rule ids the target cannot support (no hover on touch, and so on).
     inapplicable: Mapping[str, str] = field(default_factory=dict)
+    #: Rule ids that could not run because the harness could not see enough --
+    #: a vision-only run cannot read whether a control is disabled. Distinct
+    #: from `inapplicable`, which means the rule does not apply at all.
+    unavailable: Mapping[str, str] = field(default_factory=dict)
     out_of_scope: Sequence[str] = ()
     known_issues: Sequence[str] = ()
     #: True when the driver could not address elements reliably (Compose or
@@ -78,6 +82,7 @@ class SessionInfo:
             "stop_reason": self.stop_reason,
             "waivers": dict(self.waivers),
             "inapplicable": dict(self.inapplicable),
+            "unavailable": dict(self.unavailable),
             "degraded_identity": self.degraded_identity,
         }
 
@@ -284,7 +289,7 @@ def render_report(
     out += ["## What this run checked", ""]
     active = [r.id for r in RULES.values()
               if r.implemented and r.id not in info.waivers
-              and r.id not in info.inapplicable]
+              and r.id not in info.inapplicable and r.id not in info.unavailable]
     out.append(f"**Rules in force:** {', '.join(active) if active else 'none'}")
     out.append("")
     pending = [r.id for r in RULES.values() if not r.implemented]
@@ -303,6 +308,10 @@ def render_report(
     if info.out_of_scope:
         out += ["**Declared out of scope:**", ""]
         out += [f"- {item}" for item in info.out_of_scope]
+        out.append("")
+    if info.unavailable:
+        out += ["**Could not be checked on this target:**", ""]
+        out += [f"- `{rid}` — {why}" for rid, why in sorted(info.unavailable.items())]
         out.append("")
     if info.degraded_identity:
         out += ["> **Degraded run.** " + (info.degraded_note or

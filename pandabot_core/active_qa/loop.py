@@ -214,6 +214,8 @@ class ExplorationLoop:
         waived_rules: Iterable[str] = (),
         session_id: str = "",
         journal: Journal | None = None,
+        vision: Any = None,
+        viewport: tuple[int, int] = (1280, 800),
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] | None = None,
         probe_kinds: Sequence[str] = ("press_hold", "hover", "focus"),
@@ -224,6 +226,11 @@ class ExplorationLoop:
         self.deck = deck if deck is not None else Deck()
         self.waived_rules = tuple(waived_rules)
         self.journal = journal
+        #: A client with complete_with_image, used ONLY when a target exposes no
+        #: UI tree. Absent, a blind target simply has nothing to try.
+        self.vision = vision
+        self.viewport = viewport
+        self.used_vision = False
         self.clock = clock
         # Waiting is a real action (the idle card), but tests must not actually
         # sleep for 60s, so it is injectable and defaults to not sleeping at all
@@ -395,9 +402,49 @@ class ExplorationLoop:
     def _observe(self) -> tuple[Observation, str]:
         start = self.clock()
         observation = self.driver.observe()
+        if observation.is_blind and self.vision is not None and observation.screenshot:
+            observation = self._see(observation)
         fingerprint = observation.compute_fingerprint(self._policy)
         self.stats.observe_seconds += self.clock() - start
         return observation, fingerprint
+
+    def _see(self, observation: Observation) -> Observation:
+        """Ask the model where the controls are, for a target with no tree.
+
+        Costs a vision call per observation, which is why it is reached for only
+        when there is genuinely nothing else. The proposals are registered with
+        the driver so actions can be aimed at them, then spliced in so the rest
+        of the engine carries on unchanged.
+        """
+        from pandabot_core.active_qa.vision import propose_elements, vision_observation
+
+        start = self.clock()
+        elements = propose_elements(self.vision, observation.screenshot,
+                                    viewport=self.viewport)
+        self.stats.model_seconds += self.clock() - start
+        self.stats.model_calls += 1
+        if not elements:
+            return observation
+
+        self.used_vision = True
+        accept = getattr(self.driver, "accept_vision_elements", None)
+        if not callable(accept):
+            # The driver cannot aim at a coordinate, so acting on these would
+            # fail on every step. Better to stay blind than to generate work
+            # that cannot be done and report the failures as defects.
+            self._log(EventKind.NOTE,
+                      "The target exposes no UI tree and this driver cannot act "
+                      "by coordinate, so vision mode is unavailable.")
+            return observation
+        accept(elements)
+        self._log(EventKind.NOTE,
+                  f"No UI tree available, so the model located {len(elements)} "
+                  "control(s) from the screenshot. Identity is positional and "
+                  "element state is unavailable; findings are weaker than a "
+                  "tree-backed run.",
+                  screenshot=observation.screenshot,
+                  detail={"vision_controls": len(elements)})
+        return vision_observation(observation, elements)
 
     def _on_new_state(self, observation: Observation, fingerprint: str, node) -> None:
         """Seed a newly discovered state: baseline candidates, rulebook probes,

@@ -142,6 +142,35 @@ class OpenAIChat:
         data = resp.json()
         return data["choices"][0]["message"]["content"] or ""
 
+    def complete_with_image(self, system: str, user: str, image_data_uri: str) -> str:
+        """Same, with an image attached, for vision-only targets.
+
+        A vision turn costs several times a text one at the same budget, which is
+        why the engine only reaches for it when a target has no tree at all.
+        """
+        import requests  # noqa: PLC0415
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": [
+                    {"type": "text", "text": user},
+                    {"type": "image_url", "image_url": {"url": image_data_uri}},
+                ]},
+            ],
+            "stream": False,
+            "temperature": 0.2,
+        }
+        payload.update(self.options)
+        resp = requests.post(f"{self.base_url}/v1/chat/completions",
+                             json=payload, headers=headers, timeout=self.timeout)
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"] or ""
+
 
 # --- Prompt building --------------------------------------------------------
 

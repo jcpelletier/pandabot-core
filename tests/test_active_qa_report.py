@@ -130,6 +130,18 @@ def test_inapplicable_rules_are_separate_from_waived_ones():
     assert "**Waived by the project:**" not in md
 
 
+def test_rules_the_harness_could_not_see_are_listed_separately():
+    """A vision run cannot read whether a control is disabled. That is neither a
+    pass nor "does not apply": it is "could not check"."""
+    from pandabot_core.active_qa.vision import WEAKENED_RULES
+    md = render_report(SessionInfo(unavailable=dict(WEAKENED_RULES)), _report([]))
+    assert "**Could not be checked on this target:**" in md
+    assert "cannot be read from pixels" in md
+    in_force = md.split("**Rules in force:**")[1].split(chr(10))[0]
+    for rule_id in WEAKENED_RULES:
+        assert rule_id not in in_force, f"{rule_id} could not be checked"
+
+
 def test_degraded_identity_is_called_out(tmp_path):
     md = render_report(
         SessionInfo(degraded_identity=True,
