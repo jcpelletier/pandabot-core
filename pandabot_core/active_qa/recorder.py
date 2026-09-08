@@ -31,7 +31,48 @@ from typing import Any, Iterator, Sequence
 
 from pandabot_core.active_qa.contract import Action, ActResult
 
-__all__ = ["Step", "Trace", "SessionRecorder"]
+__all__ = ["Step", "Trace", "SessionRecorder", "humanise_identity"]
+
+
+def humanise_identity(identity: str) -> str:
+    """Turn a stable element identity back into something readable.
+
+    ``h:[data-testid="dead-1"]`` becomes ``dead-1``; ``r:button|l:Confirm``
+    becomes ``Confirm``. Purely for the report -- identity itself stays exact.
+    """
+    if not identity:
+        return ""
+    if identity.startswith("r:") and "|l:" in identity:
+        label = identity.split("|l:", 1)[1]
+        return label or identity
+    if identity.startswith("r:") and "|b:" in identity:
+        return f"the {identity[2:].split('|', 1)[0]} at "                f"({identity.split('|b:', 1)[1]})"
+    if identity.startswith("h:"):
+        handle = identity[2:]
+        for quote in ('"', "'"):
+            if quote in handle:
+                inner = handle.split(quote)[1]
+                if inner:
+                    return inner
+        return handle.lstrip("#.")
+    return identity
+
+
+def _describe(step: "Step") -> str:
+    """One repro line for a step, naming the control rather than its id."""
+    action = step.action
+    who = humanise_identity(step.element_identity)
+    verb = action.kind.replace("_", " ")
+    if action.kind == "wait":
+        return f"wait {action.value}ms"
+    if action.kind == "back":
+        return "go back"
+    target = f' "{who}"' if who else (f" {action.target}" if action.target else "")
+    if action.kind == "type":
+        value = str(action.value)
+        shown = value if len(value) <= 40 else value[:37] + "..."
+        return f"type {shown!r} into{target}" if target else f"type {shown!r}"
+    return f"{verb}{target}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,12 +158,22 @@ class Trace:
     def __len__(self) -> int:
         return len(self.steps)
 
-    def repro_steps(self) -> list[str]:
-        """Numbered, human-readable repro steps for the report.
+    #: Interactions the harness performs to measure a control's appearance, not
+    #: things a user does. They belong in the trace (a faithful replay needs
+    #: them) and never in the repro steps.
+    PROBE_KINDS = frozenset({"press_hold", "hover", "focus"})
 
-        Collapses runs of identical consecutive actions ("press Confirm x4"),
-        because a spam-submit finding otherwise produces forty identical lines
-        and nobody reads past the third.
+    def repro_steps(self, *, include_probes: bool = False) -> list[str]:
+        """Numbered steps a person can actually follow.
+
+        Two things separate this from a dump of the trace. Probe actions are
+        dropped, because "hover on e1" is the harness measuring a hover state,
+        not a step in reproducing a bug. And controls are named by their label
+        rather than by the per-observation id they happened to have, because
+        "click on e2" tells a reader nothing.
+
+        Runs of identical consecutive actions collapse ("press Confirm x4"), so
+        a spam-submit finding does not produce forty identical lines.
         """
         lines: list[str] = []
         run_desc: str | None = None
@@ -135,7 +186,9 @@ class Trace:
             lines.append(f"{len(lines) + 1}. {run_desc}{suffix}")
 
         for step in self.steps:
-            desc = step.action.describe()
+            if not include_probes and step.action.kind in self.PROBE_KINDS:
+                continue
+            desc = _describe(step)
             if desc == run_desc:
                 run_count += 1
                 continue

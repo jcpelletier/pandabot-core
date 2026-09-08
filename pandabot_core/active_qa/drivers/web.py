@@ -333,7 +333,10 @@ class PlaywrightDriver:
         """
         url = data.get("url", "")
         path = url.split("://", 1)[-1].split("?", 1)[0].split("#", 1)[0]
-        if "/" in path:
+        if url.startswith("file:"):
+            # A local fixture's absolute path is noise in every heading.
+            path = path.rsplit("/", 1)[-1] or path
+        elif "/" in path:
             path = "/" + path.split("/", 1)[1]
         title = (data.get("title") or "").strip()
         return f"{path} {title}".strip() or url

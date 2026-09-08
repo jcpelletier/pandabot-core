@@ -209,6 +209,36 @@ class CoverageMap:
                 escapes[e.src] = True
         return sorted(f for f, ok in escapes.items() if not ok)
 
+    def path_between(self, src: str, dst: str) -> list[Edge] | None:
+        """Shortest observed route from one state to another.
+
+        The recorded trace is the whole epoch, wandering included, which is what
+        a machine needs to replay faithfully and the last thing a person wants
+        to read. This is the followable version: the shortest sequence of
+        actions the run actually observed getting from ``src`` to ``dst``.
+        """
+        if src == dst:
+            return []
+        if src not in self.states or dst not in self.states:
+            return None
+        adjacency: dict[str, list[Edge]] = {}
+        for e in self.edges:
+            if not e.is_self_loop:
+                adjacency.setdefault(e.src, []).append(e)
+        queue: list[tuple[str, list[Edge]]] = [(src, [])]
+        seen = {src}
+        while queue:
+            node, path = queue.pop(0)
+            for edge in adjacency.get(node, []):
+                if edge.dst in seen:
+                    continue
+                new_path = path + [edge]
+                if edge.dst == dst:
+                    return new_path
+                seen.add(edge.dst)
+                queue.append((edge.dst, new_path))
+        return None
+
     def route_to_open_work(self, frm: str, open_states: Iterable[str]) -> list[Edge] | None:
         """Shortest observed path from ``frm`` to any state with open frontier.
 

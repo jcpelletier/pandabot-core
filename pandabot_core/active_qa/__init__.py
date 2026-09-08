@@ -21,6 +21,7 @@ here so far:
 :mod:`~.strategies`           The strategy deck, played when novelty stalls
 :mod:`~.loop`                 The exploration loop that ties it all together
 :mod:`~.triage`               Clustering and replay-confirmation before reporting
+:mod:`~.report`               The markdown report and its evidence bundle
 :mod:`~.journal`              Running HTML narrative of the run, with frames
 :mod:`~.drivers`              Concrete drivers (web via Playwright, so far)
 :mod:`~.fake`                 A scriptable in-memory driver for tests
@@ -94,7 +95,10 @@ from pandabot_core.active_qa.rules import (
     run_step_detectors,
     severity_rank,
 )
-from pandabot_core.active_qa.recorder import SessionRecorder, Step, Trace
+from pandabot_core.active_qa.recorder import (
+    SessionRecorder, Step, Trace, humanise_identity,
+)
+from pandabot_core.active_qa.report import SessionInfo, render_report, write_report
 from pandabot_core.active_qa.strategies import DECK, Card, Deck, implemented_cards
 from pandabot_core.active_qa.triage import (
     FindingCluster,
@@ -116,7 +120,9 @@ __all__ = [
     "Candidate", "CoverageMap", "Edge", "StateNode",
     "Frontier", "PriorityWeights", "DEFAULT_WEIGHTS", "default_candidates",
     # recorder
-    "SessionRecorder", "Step", "Trace",
+    "SessionRecorder", "Step", "Trace", "humanise_identity",
+    # report
+    "SessionInfo", "write_report", "render_report",
     # rules
     "RULES", "Rule", "rule", "implemented_rules", "Finding",
     "StepContext", "StateContext", "StateProbe",

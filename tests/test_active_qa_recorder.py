@@ -148,31 +148,57 @@ def test_trace_round_trips_through_json():
 
 # --- Repro steps ----------------------------------------------------------
 
-def test_repro_steps_are_numbered_from_one():
+def test_repro_steps_are_numbered_and_name_the_control():
+    """"click on e2" tells a reader nothing; the label does."""
     r = _rec()
-    r.record(Action(kind="click", target="e1", reason="explore"))
-    r.record(Action(kind="type", target="e2", value="abc"))
+    r.record(Action(kind="click", target="e1", reason="explore"),
+             element_identity="r:button|l:Open")
+    r.record(Action(kind="type", target="e2", value="abc"),
+             element_identity='h:[data-testid="name"]')
     lines = r.trace_for(1).repro_steps()
-    assert lines[0].startswith("1. click on e1")
-    assert lines[1].startswith("2. type on e2 with 'abc'")
+    assert lines[0] == '1. click "Open"'
+    assert lines[1] == "2. type 'abc' into \"name\""
+
+
+def test_probe_actions_are_left_out_of_repro_steps():
+    """press_hold, hover and focus are the harness measuring appearance, not
+    steps in reproducing a bug. They stay in the trace for faithful replay."""
+    r = _rec()
+    r.record(Action(kind="click", target="e1"), element_identity="r:button|l:Open")
+    for kind in ("press_hold", "hover", "focus"):
+        r.record(Action(kind=kind, target="e1"), element_identity="r:button|l:Open")
+    r.record(Action(kind="click", target="e2"), element_identity="r:button|l:Next")
+    trace = r.trace_for(4)
+    assert trace.repro_steps() == ['1. click "Open"', '2. click "Next"']
+    assert len(trace.repro_steps(include_probes=True)) == 5
+    assert len(trace) == 5, "the trace itself keeps every action"
 
 
 def test_repro_steps_collapse_repeated_actions():
     """A spam-submit finding otherwise produces forty identical lines."""
     r = _rec()
     for _ in range(5):
-        r.record(Action(kind="click", target="e1"))
-    r.record(Action(kind="click", target="e2"))
+        r.record(Action(kind="click", target="e1"), element_identity="r:button|l:Go")
+    r.record(Action(kind="click", target="e2"), element_identity="r:button|l:Stop")
     lines = r.trace_for(5).repro_steps()
-    assert lines == ["1. click on e1 (x5)", "2. click on e2"]
+    assert lines == ['1. click "Go" (x5)', '2. click "Stop"']
 
 
 def test_repro_steps_do_not_collapse_across_a_different_action():
     r = _rec()
-    r.record(Action(kind="click", target="e1"))
-    r.record(Action(kind="click", target="e2"))
-    r.record(Action(kind="click", target="e1"))
+    r.record(Action(kind="click", target="e1"), element_identity="r:button|l:A")
+    r.record(Action(kind="click", target="e2"), element_identity="r:button|l:B")
+    r.record(Action(kind="click", target="e1"), element_identity="r:button|l:A")
     assert len(r.trace_for(2).repro_steps()) == 3
+
+
+def test_humanise_identity_handles_every_identity_shape():
+    from pandabot_core.active_qa.recorder import humanise_identity
+    assert humanise_identity('h:[data-testid="dead-1"]') == "dead-1"
+    assert humanise_identity("h:#confirm") == "confirm"
+    assert humanise_identity("r:button|l:Confirm order") == "Confirm order"
+    assert "button" in humanise_identity("r:button|b:0,96,400,176")
+    assert humanise_identity("") == ""
 
 
 # --- Stats and persistence ------------------------------------------------
