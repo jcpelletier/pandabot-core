@@ -22,6 +22,7 @@ here so far:
 :mod:`~.loop`                 The exploration loop that ties it all together
 :mod:`~.triage`               Clustering and replay-confirmation before reporting
 :mod:`~.report`               The markdown report and its evidence bundle
+:mod:`~.brief`                Reading a project's PANDABOTQA.md
 :mod:`~.journal`              Running HTML narrative of the run, with frames
 :mod:`~.drivers`              Concrete drivers (web via Playwright, so far)
 :mod:`~.fake`                 A scriptable in-memory driver for tests
@@ -33,6 +34,9 @@ drivers and the orchestrator live above it.
 
 from __future__ import annotations
 
+from pandabot_core.active_qa.brief import (
+    BRIEF_FILENAME, ProjectBrief, load_brief, parse_brief, starter_brief,
+)
 from pandabot_core.active_qa.contract import (
     ACTION_KINDS,
     DEFAULT_FINGERPRINT_POLICY,
@@ -123,6 +127,8 @@ __all__ = [
     "SessionRecorder", "Step", "Trace", "humanise_identity",
     # report
     "SessionInfo", "write_report", "render_report",
+    # brief
+    "ProjectBrief", "load_brief", "parse_brief", "starter_brief", "BRIEF_FILENAME",
     # rules
     "RULES", "Rule", "rule", "implemented_rules", "Finding",
     "StepContext", "StateContext", "StateProbe",
