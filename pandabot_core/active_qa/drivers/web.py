@@ -151,6 +151,30 @@ _COLLECT_JS = r"""
 """
 
 
+_FOCUSED_JS = r"""
+() => {
+  const el = document.activeElement;
+  if (!el || el === document.body) return null;
+  const tid = el.getAttribute('data-testid') || el.getAttribute('data-test-id');
+  if (tid) return 'h:[data-testid=' + JSON.stringify(tid) + ']';
+  if (el.id) return 'h:#' + el.id;
+  const parts = [];
+  let n = el;
+  while (n && n.nodeType === 1 && parts.length < 6) {
+    let s = n.tagName.toLowerCase();
+    const p = n.parentElement;
+    if (p) {
+      const same = [...p.children].filter(c => c.tagName === n.tagName);
+      if (same.length > 1) s += ':nth-of-type(' + (same.indexOf(n) + 1) + ')';
+    }
+    parts.unshift(s);
+    n = n.parentElement;
+  }
+  return 'h:' + parts.join('>');
+}
+"""
+
+
 class PlaywrightDriver:
     """Drives a web page under Playwright.
 
@@ -472,6 +496,60 @@ class PlaywrightDriver:
             except Exception:  # pragma: no cover
                 pass
             self._held = None
+
+    # -- accessibility -----------------------------------------------------
+    def run_axe(self, axe_source: str, *, tags: Sequence[str] = ()) -> dict[str, Any]:
+        """Run axe-core against the current page and return its raw results.
+
+        The source is injected per call rather than cached on the page: a
+        navigation wipes it, and silently auditing a page that never got axe
+        would report a clean result for a check that did not run.
+        """
+        page = self._require_page()
+        try:
+            page.evaluate(axe_source)
+            options = {"runOnly": {"type": "tag", "values": list(tags)}} if tags else {}
+            return page.evaluate(
+                """(opts) => axe.run(document, Object.assign(
+                       {resultTypes: ['violations']}, opts))""",
+                options)
+        except Exception as exc:
+            self._logs.append(f"axe run failed: {exc}"[:300])
+            return {}
+
+    def tab_order(self, *, max_stops: int = 80) -> tuple[list[str], str | None]:
+        """Tab through the page, returning (identities reached, trapped-at).
+
+        Focus is read back as the element's own identity so it lines up with the
+        rest of the engine. A control that focus will not leave is a keyboard
+        trap (WCAG 2.1.2), and is reported rather than looped on forever.
+        """
+        page = self._require_page()
+        reached: list[str] = []
+        last: str | None = None
+        repeats = 0
+        try:
+            page.evaluate("() => { if (document.activeElement) "
+                          "document.activeElement.blur(); }")
+            for _ in range(max_stops):
+                page.keyboard.press("Tab")
+                identity = page.evaluate(_FOCUSED_JS)
+                if not identity:
+                    break
+                if identity == last:
+                    repeats += 1
+                    # Three presses with focus unmoved is a trap, not a slow page.
+                    if repeats >= 2:
+                        return reached, identity
+                    continue
+                repeats = 0
+                last = identity
+                if identity in reached:
+                    break          # wrapped around: the cycle is complete
+                reached.append(identity)
+        except Exception as exc:
+            self._logs.append(f"tab traversal failed: {exc}"[:300])
+        return reached, None
 
     # -- health ------------------------------------------------------------
     def health(self) -> Health:
