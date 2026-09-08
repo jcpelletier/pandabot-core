@@ -99,6 +99,14 @@ def test_a_waiver_without_a_reason_still_records_one():
     assert b.waivers == {"U5": "no reason given"}
 
 
+def test_label_normalisation_is_off_unless_the_project_asks():
+    """Lossy, so a project opts in rather than the engine guessing."""
+    assert _brief().normalise_labels is False
+    nl = chr(10)
+    block = nl.join(['```yaml', 'identity: {normalise_numbers: true}', '```', ''])
+    assert parse_brief(block).normalise_labels is True
+
+
 def test_scripts_and_bridge_are_read():
     b = _brief()
     assert b.scripts == {"seed": "qa/seed.sh"}

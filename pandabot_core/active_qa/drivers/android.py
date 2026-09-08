@@ -49,6 +49,7 @@ from typing import Any, Protocol, Sequence
 from pandabot_core.active_qa.contract import (
     DEFAULT_FINGERPRINT_POLICY,
     Action, ActResult, DriverError, Element, Health, Observation,
+    normalise_label,
 )
 
 __all__ = ["AndroidDriver", "AdbTransport", "LocalAdb", "RemoteAdb", "ANDROID_ACTIONS"]
@@ -162,6 +163,7 @@ class AndroidDriver:
         capture_screenshots: bool = True,
         clear_data_on_relaunch: bool = True,
         grant_permissions: bool = True,
+        normalise_labels: bool = False,
         settle_ms: int = 400,
         include_text_nodes: bool = True,
         dump_path: str = "/sdcard/pandaqa-ui.xml",
@@ -175,6 +177,12 @@ class AndroidDriver:
         self.capture_screenshots = capture_screenshots and bool(self.screenshot_dir)
         self.clear_data_on_relaunch = clear_data_on_relaunch
         self.grant_permissions = grant_permissions
+        #: Strip digits from labels when deriving element identity. Off by
+        #: default because it is lossy (it collapses "Item 1" and "Item 2"), and
+        #: turned on per project via PANDABOTQA.md for targets whose labels carry
+        #: live values -- an idle game's "Hire (500c + 1 Food)" otherwise mints a
+        #: new state every time the price moves.
+        self.normalise_labels = normalise_labels
         self.settle_ms = settle_ms
         self.include_text_nodes = include_text_nodes
         self.dump_path = dump_path
@@ -418,11 +426,13 @@ class AndroidDriver:
         if handle and handle.startswith(f"{self.package}:id/"):
             handle = handle.split(":id/", 1)[1]
 
+        label = (" ".join((desc or text).split())[:80] if (desc or text)
+                 else inherited_label)
         return Element(
             id=f"e{seq}",
             role=role,
-            label=(" ".join((desc or text).split())[:80] if (desc or text)
-                   else inherited_label),
+            label=label,
+            identity_label=normalise_label(label) if self.normalise_labels else None,
             bounds=bounds,  # type: ignore[arg-type]
             enabled=a.get("enabled") == "true",
             selected=a.get("selected") == "true" or a.get("checked") == "true",

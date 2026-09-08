@@ -142,6 +142,18 @@ class ProjectBrief:
         return out
 
     @property
+    def normalise_labels(self) -> bool:
+        """Whether this project's control labels carry live values.
+
+        ``identity: {normalise_numbers: true}``. Opt-in per project because the
+        normalisation is lossy: it makes an idle game's "Hire (500c + 1 Food)"
+        stable and would collapse a list's "Item 1" and "Item 2" into one
+        control. Only the project knows which shape its labels have.
+        """
+        raw = self.config.get("identity") or {}
+        return bool(raw.get("normalise_numbers")) if isinstance(raw, Mapping) else False
+
+    @property
     def scripts(self) -> dict[str, str]:
         raw = self.config.get("scripts") or {}
         return {str(k): str(v) for k, v in raw.items()} if isinstance(raw, Mapping) else {}
@@ -222,6 +234,7 @@ class ProjectBrief:
             "target": self.target,
             "runner": self.runner,
             "rule_packs": self.rule_packs,
+            "normalise_labels": self.normalise_labels,
             "waivers": self.waivers,
             "out_of_scope": len(self.out_of_scope),
             "known_issues": len(self.known_issues),

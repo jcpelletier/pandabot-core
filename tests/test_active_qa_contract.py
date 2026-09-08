@@ -360,3 +360,46 @@ def test_identity_without_a_handle_label_or_bounds_still_differs():
     a = Element(id="e1", role="button")
     b = Element(id="e2", role="button")
     assert a.identity != b.identity
+
+
+# --- Identity under live labels -------------------------------------------
+
+def test_identity_label_overrides_the_visible_one():
+    """Space-Trader's "Hire (500c + 1 Food)" changes identity every time the
+    price moves, minting a new state each time: one control produced 22."""
+    from pandabot_core.active_qa.contract import normalise_label
+    a = Element(id="e1", role="button", label="Hire (500c + 1 Food)",
+                identity_label=normalise_label("Hire (500c + 1 Food)"))
+    b = Element(id="e9", role="button", label="Hire (400c + 1 Food)",
+                identity_label=normalise_label("Hire (400c + 1 Food)"))
+    assert a.identity == b.identity
+
+
+def test_the_visible_label_is_untouched_for_the_report():
+    a = Element(id="e1", role="button", label="Hire (500c + 1 Food)",
+                identity_label="Hire (#c + # Food)")
+    assert a.label == "Hire (500c + 1 Food)"
+
+
+def test_normalisation_is_lossy_and_that_is_why_it_is_opt_in():
+    """It collapses "Item 1" and "Item 2", which is a collision -- strictly
+    worse than instability, because the map cannot tell them apart."""
+    from pandabot_core.active_qa.contract import normalise_label
+    assert normalise_label("Item 1") == normalise_label("Item 2")
+
+
+def test_identity_is_unchanged_when_no_identity_label_is_set():
+    plain = Element(id="e1", role="button", label="Confirm")
+    assert plain.identity == "r:button|l:Confirm"
+
+
+def test_a_handle_still_beats_an_identity_label():
+    el = Element(id="e1", role="button", label="Hire (500c)",
+                 identity_label="Hire (#c)", handle="#hire")
+    assert el.identity == "h:#hire"
+
+
+def test_identity_label_survives_a_round_trip():
+    el = Element(id="e1", role="button", label="Hire (500c)",
+                 identity_label="Hire (#c)")
+    assert Element.from_dict(el.to_dict()).identity == el.identity

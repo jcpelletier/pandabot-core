@@ -165,6 +165,18 @@ class Element:
     #: frame, and letting it count as state would undo the ambient-motion
     #: guarantee that makes no-op detection work at all.
     render_hash: str | None = None
+    #: A label to use for *identity* when the visible one is unstable.
+    #:
+    #: Set by a driver when a control's label carries live values -- Space-Trader
+    #: has a button labelled "Hire (500c + 1 Food)", and identity built from that
+    #: changes every time the price does, minting a new state each time. One
+    #: control produced 22 "states" and 22 findings that way.
+    #:
+    #: Deliberately driver-supplied rather than derived here, because the
+    #: normalisation is lossy and only the target knows whether it is safe:
+    #: "Hire (500c)" and "Hire (400c)" are one control, while "Item 1" and
+    #: "Item 2" are two, and nothing in the label distinguishes those cases.
+    identity_label: str | None = None
 
     @property
     def identity(self) -> str:
@@ -177,8 +189,9 @@ class Element:
         """
         if self.handle:
             return f"h:{self.handle}"
-        if self.label:
-            return f"r:{self.role}|l:{self.label}"
+        label = self.identity_label if self.identity_label is not None else self.label
+        if label:
+            return f"r:{self.role}|l:{label}"
         # Neither a handle nor a label. Position is all that is left, and a
         # colliding identity is far worse than an unstable one: two controls
         # sharing an identity means the coverage map cannot tell them apart, the
@@ -218,7 +231,23 @@ class Element:
             text=d.get("text"),
             handle=d.get("handle"),
             render_hash=d.get("render_hash"),
+            identity_label=d.get("identity_label"),
         )
+
+
+def normalise_label(text: str) -> str:
+    """Replace runs of digits with ``#`` so a live value stops churning identity.
+
+    ``"Hire (500c + 1 Food)"`` becomes ``"Hire (#c + # Food)"``, which is stable
+    while the price moves.
+
+    **Lossy, and never applied automatically.** It also collapses "Item 1" and
+    "Item 2" into one identity, which is a collision -- the failure that is
+    strictly worse than instability, because the coverage map then cannot tell
+    two controls apart. A driver opts in per target (and a project opts in via
+    its ``PANDABOTQA.md``) because only they know which case applies.
+    """
+    return re.sub(r"\d+", "#", text)
 
 
 _INTERACTIVE_ROLES = frozenset({
