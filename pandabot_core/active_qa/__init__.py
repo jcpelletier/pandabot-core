@@ -25,6 +25,7 @@ here so far:
 :mod:`~.brief`                Reading a project's PANDABOTQA.md
 :mod:`~.advisor`              The model: orient on a new screen, judge a finding
 :mod:`~.wcag`                 The WCAG 2.2 AA pack for web targets
+:mod:`~.android_a11y`         The Android accessibility pack
 :mod:`~.journal`              Running HTML narrative of the run, with frames
 :mod:`~.drivers`              Concrete drivers (web via Playwright, so far)
 :mod:`~.fake`                 A scriptable in-memory driver for tests
@@ -109,6 +110,9 @@ from pandabot_core.active_qa.recorder import (
 )
 from pandabot_core.active_qa.report import SessionInfo, render_report, write_report
 from pandabot_core.active_qa.strategies import DECK, Card, Deck, implemented_cards
+from pandabot_core.active_qa.android_a11y import (
+    MIN_TOUCH_TARGET_DP, android_a11y_findings,
+)
 from pandabot_core.active_qa.wcag import (
     AXE_VERSION, JUDGED_CRITERIA, WCAG_TAGS, axe_findings, coverage_note,
     keyboard_findings, resolve_axe_source,
@@ -145,6 +149,8 @@ __all__ = [
     "StepContext", "StateContext", "StateProbe",
     "run_step_detectors", "run_state_detectors", "run_session_detectors",
     "BLOCKER", "MAJOR", "MINOR", "POLISH", "severity_rank",
+    # android accessibility
+    "android_a11y_findings", "MIN_TOUCH_TARGET_DP",
     # wcag
     "axe_findings", "keyboard_findings", "resolve_axe_source", "coverage_note",
     "AXE_VERSION", "WCAG_TAGS", "JUDGED_CRITERIA",

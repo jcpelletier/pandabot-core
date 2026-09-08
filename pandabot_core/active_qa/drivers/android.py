@@ -38,6 +38,7 @@ because it survives a HUD counter ticking somewhere else on screen.
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import time
@@ -51,6 +52,8 @@ from pandabot_core.active_qa.contract import (
 )
 
 __all__ = ["AndroidDriver", "AdbTransport", "LocalAdb", "RemoteAdb", "ANDROID_ACTIONS"]
+
+log = logging.getLogger("active_qa.android")
 
 
 #: What a touch device can actually do. press_hold, hover and focus are absent,
@@ -181,6 +184,7 @@ class AndroidDriver:
         self._logcat_cursor = ""
         self._pending_logs: list[str] = []
         self._started = False
+        self._density: int | None = None
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -220,18 +224,37 @@ class AndroidDriver:
                 granted.append(perm)
         return granted
 
-    def _launch(self) -> None:
+    def _launch(self, *, wait_seconds: float = 30.0) -> None:
+        """Start the app and wait for it to actually reach the foreground.
+
+        Deliberately NOT ``am start -W``. That flag is supposed to block until
+        the launch completes, and against this device it prints "Starting:" and
+        then never returns -- measured hanging past 45s on an activity that had
+        in fact started. Polling for the foreground package is slower in the
+        happy case and vastly more reliable, and it also verifies the thing we
+        actually care about rather than what the launcher claims.
+        """
         if self.activity:
             target = f"{self.package}/{self.activity}"
             rc, _out, err = self.adb.run(
-                ["shell", "am", "start", "-W", "-n", target], timeout=60)
+                ["shell", "am", "start", "-n", target], timeout=45)
         else:
             rc, _out, err = self.adb.run(
                 ["shell", "monkey", "-p", self.package,
-                 "-c", "android.intent.category.LAUNCHER", "1"], timeout=60)
+                 "-c", "android.intent.category.LAUNCHER", "1"], timeout=45)
         if rc != 0:
             raise DriverError(f"could not launch {self.package}: {err.strip()}")
-        time.sleep(self.settle_ms / 1000.0)
+
+        deadline = time.monotonic() + wait_seconds
+        while time.monotonic() < deadline:
+            time.sleep(self.settle_ms / 1000.0)
+            if self._foreground_package() == self.package:
+                return
+        # Not fatal: a permission dialog or a splash owned by another package
+        # can legitimately be in front. The loop's foreign-UI recovery handles
+        # that, and health() reports it.
+        log.warning("%s did not reach the foreground within %.0fs",
+                    self.package, wait_seconds)
 
     def close(self) -> None:
         if self._started:
@@ -547,6 +570,26 @@ class AndroidDriver:
                           message=f"{foreground} is in the foreground",
                           details={"in_app": False, "foreground": foreground})
         return Health(ok=True, details={"in_app": True})
+
+    # -- device facts ------------------------------------------------------
+    def density(self) -> int:
+        """Screen density in dpi, cached.
+
+        Needed to judge touch-target size. The 48dp minimum is a physical
+        measurement and the dump reports pixels: on this 640dpi handset 48dp is
+        192px, so comparing raw pixels against a fixed number would pass every
+        control on a high-density screen and fail every control on a
+        low-density one.
+        """
+        if self._density is None:
+            rc, out, _err = self.adb.run(["shell", "wm", "density"], timeout=20)
+            value = 160
+            if rc == 0:
+                m = re.search(r"(\d+)", out.decode("utf-8", "replace"))
+                if m:
+                    value = int(m.group(1))
+            self._density = value
+        return self._density
 
     # -- recovery ----------------------------------------------------------
     def recover(self) -> bool:
