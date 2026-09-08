@@ -23,6 +23,7 @@ here so far:
 :mod:`~.triage`               Clustering and replay-confirmation before reporting
 :mod:`~.report`               The markdown report and its evidence bundle
 :mod:`~.brief`                Reading a project's PANDABOTQA.md
+:mod:`~.advisor`              The model: orient on a new screen, judge a finding
 :mod:`~.journal`              Running HTML narrative of the run, with frames
 :mod:`~.drivers`              Concrete drivers (web via Playwright, so far)
 :mod:`~.fake`                 A scriptable in-memory driver for tests
@@ -34,6 +35,9 @@ drivers and the orchestrator live above it.
 
 from __future__ import annotations
 
+from pandabot_core.active_qa.advisor import (
+    AdvisorStats, LocalAdvisor, OpenAIChat, describe_observation,
+)
 from pandabot_core.active_qa.brief import (
     BRIEF_FILENAME, ProjectBrief, load_brief, parse_brief, starter_brief,
 )
@@ -127,6 +131,8 @@ __all__ = [
     "SessionRecorder", "Step", "Trace", "humanise_identity",
     # report
     "SessionInfo", "write_report", "render_report",
+    # advisor
+    "LocalAdvisor", "OpenAIChat", "AdvisorStats", "describe_observation",
     # brief
     "ProjectBrief", "load_brief", "parse_brief", "starter_brief", "BRIEF_FILENAME",
     # rules
