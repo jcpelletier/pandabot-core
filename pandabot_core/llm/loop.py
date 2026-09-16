@@ -46,15 +46,22 @@ _CONFIRM_TOOLS: set[str] = {"manage_files", "set_jenkins_schedule"}
 _MAX_ARG_ERROR_ROUNDS = 2
 
 
-def _max_tokens() -> int:
-    """Output ceiling per round.
+# Output ceiling per round, in tokens. Not the context window: this caps only
+# what the model may generate in one turn, and thinking tokens count against it.
+# 4096 was tight enough that a tool call carrying a long shell command could be
+# cut off mid-JSON, which is what made the arguments unparseable; 8192 is the
+# most DeepSeek will emit per response, so it is the useful ceiling here.
+_DEFAULT_MAX_TOKENS = 8192
 
-    Overridable because the ceiling is what truncates long tool arguments in the
-    first place: a deployment whose tools take big inputs (shell commands, file
-    bodies) wants more headroom than one answering chat questions.
+
+def _max_tokens() -> int:
+    """Per-round output ceiling, overridable via PANDABOT_MAX_TOKENS.
+
+    Worth lowering for a small local model (llama.cpp / Ollama) whose context is
+    itself only a few thousand tokens, and worth leaving alone otherwise.
     """
     from pandabot_core.config import cfg
-    return cfg.int("PANDABOT_MAX_TOKENS", 4096)
+    return cfg.int("PANDABOT_MAX_TOKENS", _DEFAULT_MAX_TOKENS)
 
 
 def run_claude_loop(

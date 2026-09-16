@@ -14,6 +14,7 @@ import types
 import pytest
 
 from pandabot_core.llm import provider as prov
+from pandabot_core.llm import loop as loop_mod
 from pandabot_core.llm.loop import run_claude_loop
 
 
@@ -212,3 +213,36 @@ class TestLoopHandlesUnusableArgs:
         scripted([_truncated_response(), good, _truncated_response(), _text_response("ok")])
         reply = run_claude_loop("proceed", None, [], lambda n, a: "ran", "sys")
         assert reply == "ok"
+
+
+# --------------------------------------------------------------------------
+# per-round output ceiling
+# --------------------------------------------------------------------------
+
+class TestMaxTokens:
+    def test_default_gives_long_tool_arguments_room(self):
+        """4096 was tight enough to cut a long shell command off mid-JSON."""
+        assert loop_mod._max_tokens() == 8192
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("PANDABOT_MAX_TOKENS", "2048")
+        assert loop_mod._max_tokens() == 2048
+
+    def test_garbage_override_falls_back_to_the_default(self, monkeypatch):
+        monkeypatch.setenv("PANDABOT_MAX_TOKENS", "lots")
+        assert loop_mod._max_tokens() == 8192
+
+    def test_loop_passes_the_ceiling_through(self, scripted, monkeypatch):
+        monkeypatch.setenv("PANDABOT_MAX_TOKENS", "6000")
+        seen = {}
+
+        class _P(_ScriptedProvider):
+            def complete(self, **kwargs):
+                seen["max_tokens"] = kwargs["max_tokens"]
+                return super().complete(**kwargs)
+
+        p = _P([_text_response("hi")])
+        monkeypatch.setattr(prov, "get_provider", lambda: p)
+        monkeypatch.setattr(prov, "get_provider_name", lambda: "openai_compat")
+        run_claude_loop("hello", None, [], lambda n, a: "ran", "sys")
+        assert seen["max_tokens"] == 6000
