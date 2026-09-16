@@ -40,6 +40,22 @@ _UPGRADE_TOOLS: set[str] = {"manage_schedule"}
 # Tools whose unconfirmed preview results should trigger a pending-confirmation save
 _CONFIRM_TOOLS: set[str] = {"manage_files", "set_jenkins_schedule"}
 
+# How many consecutive rounds may come back with unusable tool arguments before
+# the loop gives up. One retry is usually enough (the model shortens the call);
+# looping to the 25-round limit just burns tokens on the same truncation.
+_MAX_ARG_ERROR_ROUNDS = 2
+
+
+def _max_tokens() -> int:
+    """Output ceiling per round.
+
+    Overridable because the ceiling is what truncates long tool arguments in the
+    first place: a deployment whose tools take big inputs (shell commands, file
+    bodies) wants more headroom than one answering chat questions.
+    """
+    from pandabot_core.config import cfg
+    return cfg.int("PANDABOT_MAX_TOKENS", 4096)
+
 
 def run_claude_loop(
     user_message: str,
@@ -87,9 +103,11 @@ def run_claude_loop(
 
     messages = (history or []) + [{"role": "user", "content": user_message}]
     tools_called: list[str] = []
+    arg_error_rounds = 0
     t0 = _time.monotonic()
 
     _can_stream = on_text_delta is not None and hasattr(provider, "complete_stream")
+    max_tokens = _max_tokens()
 
     for _ in range(25):  # safety: max 25 tool-call rounds
         if _can_stream:
@@ -98,7 +116,7 @@ def run_claude_loop(
                 messages=messages,
                 formatted_tools=formatted_tools,
                 model=provider.primary_model,
-                max_tokens=4096,
+                max_tokens=max_tokens,
                 on_delta=on_text_delta,
                 reasoning_effort=reasoning_effort,
             )
@@ -108,7 +126,7 @@ def run_claude_loop(
                 messages=messages,
                 formatted_tools=formatted_tools,
                 model=provider.primary_model,
-                max_tokens=4096,
+                max_tokens=max_tokens,
                 reasoning_effort=reasoning_effort,
             )
         _usage.log_call(
@@ -165,7 +183,7 @@ def run_claude_loop(
                     messages=messages,
                     formatted_tools=formatted_tools,
                     model=provider.upgrade_model,
-                    max_tokens=4096,
+                    max_tokens=max_tokens,
                     reasoning_effort=reasoning_effort,
                 )
                 _usage.log_call(
@@ -194,9 +212,27 @@ def run_claude_loop(
             # Execute tools and gather results
             tool_results = []
             pending_actions: list[dict] = []
+            round_arg_errors: list[str] = []
             for block in response.content:
                 if block.type != "tool_use":
                     continue
+
+                # Arguments the provider could not parse (usually truncated by
+                # max_tokens). The tool must not run (its input is incomplete),
+                # but the block still needs a tool_result, both because the API
+                # requires one per tool_use and because the explanation is what
+                # lets the next round retry with a shorter call.
+                if block.error:
+                    log.warning("Skipping %s: %s", block.name, block.error)
+                    round_arg_errors.append(block.error)
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": block.error,
+                        "is_error": True,
+                    })
+                    continue
+
                 log.info("Tool call: %s(%s)", block.name, block.input)
                 tools_called.append(block.name)
                 result = execute_tool(block.name, block.input)
@@ -222,6 +258,25 @@ def run_claude_loop(
                     "content": result,
                 })
             messages.append({"role": "user", "content": tool_results})
+
+            if round_arg_errors and len(round_arg_errors) == len(tool_results):
+                # Nothing at all ran this round. Retry once; if the model keeps
+                # producing unusable calls, say so instead of spinning.
+                arg_error_rounds += 1
+                if arg_error_rounds >= _MAX_ARG_ERROR_ROUNDS:
+                    ai_event(
+                        "BotToolArgsUnusable",
+                        message=user_message[:200],
+                        rounds=str(arg_error_rounds),
+                    )
+                    return (
+                        "I couldn't run that: the tool call came back with unusable "
+                        "arguments twice in a row (the response was cut off part-way "
+                        "through them). Ask me for one step at a time, or for a shorter "
+                        "command, and it should go through."
+                    )
+            else:
+                arg_error_rounds = 0
 
             if on_confirm is not None and channel_id is not None and pending_actions:
                 on_confirm(channel_id, pending_actions)

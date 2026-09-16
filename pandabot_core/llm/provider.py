@@ -75,6 +75,11 @@ class ContentBlock:
     input: dict | None = None
     thinking: str | None = None
     signature: str | None = None
+    # Set on a tool_use block whose arguments could not be parsed (usually the
+    # model hit max_tokens mid-JSON). The block is still returned so the loop can
+    # answer it with a tool_result error and let the model retry; it must never
+    # be executed, because the input dict is incomplete.
+    error: str | None = None
 
 
 @dataclass
@@ -84,6 +89,53 @@ class NormalizedResponse:
     model: str
     input_tokens: int
     output_tokens: int
+
+
+def parse_tool_arguments(
+    raw: str | None,
+    tool_name: str | None = None,
+    finish_reason: str | None = None,
+) -> tuple[dict, str | None]:
+    """Parse an OpenAI-style tool-call ``arguments`` JSON string.
+
+    Returns ``(input_dict, error)``. On success ``error`` is None. On failure the
+    dict is empty and ``error`` explains what went wrong, in words the model can
+    act on: it is fed back as the tool_result so the next round can retry.
+
+    Never raises. A truncated tool call used to escape as a bare
+    ``json.JSONDecodeError`` ("Unterminated string starting at: line 1 column
+    13") and kill the whole request; the common cause is the response hitting
+    ``max_tokens`` part-way through a long argument (a shell command, a file
+    body), which no amount of retrying the same prompt fixes on its own.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return {}, None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        truncated = finish_reason == "length"
+        why = (
+            "the response hit the max_tokens limit part-way through the arguments"
+            if truncated
+            else f"the arguments were not valid JSON ({exc})"
+        )
+        log.warning(
+            "Malformed tool arguments for %s (finish_reason=%s, %d chars): %s",
+            tool_name or "<unknown>", finish_reason, len(text), exc,
+        )
+        return {}, (
+            f"Tool call to {tool_name or 'the tool'} was discarded: {why}. "
+            "Nothing ran. Retry the call with shorter arguments. For a long "
+            "shell command, split it into several smaller calls."
+        )
+    if not isinstance(parsed, dict):
+        log.warning("Tool arguments for %s were %s, not an object", tool_name, type(parsed).__name__)
+        return {}, (
+            f"Tool call to {tool_name or 'the tool'} was discarded: arguments must "
+            "be a JSON object of named parameters. Nothing ran. Retry the call."
+        )
+    return parsed, None
 
 
 # ---------------------------------------------------------------------------
@@ -138,8 +190,29 @@ class AnthropicProvider:
                     thinking=block.thinking,
                     signature=block.signature,
                 ))
+
+        # max_tokens cuts the turn off mid-block. A tool_use that lands there has
+        # a partial input dict, so flag the last one rather than executing it with
+        # half its arguments (the same failure the OpenAI-compat path hits, where
+        # it surfaces as unparseable JSON).
+        if response.stop_reason == "max_tokens":
+            for block in reversed(content):
+                if block.type == "tool_use":
+                    block.error = (
+                        f"Tool call to {block.name} was discarded: the response hit "
+                        "the max_tokens limit part-way through the arguments, so they "
+                        "are incomplete. Nothing ran. Retry the call with shorter "
+                        "arguments. For a long shell command, split it into several "
+                        "smaller calls."
+                    )
+                    break
+
+        # Keyed off the content, not the stop reason: a "max_tokens" turn that
+        # carries no tool_use is just truncated text, and calling it a tool_use
+        # turn would make the loop send back an empty tool_result list, which the
+        # API rejects.
         return NormalizedResponse(
-            stop_reason="end_turn" if response.stop_reason == "end_turn" else "tool_use",
+            stop_reason="tool_use" if any(b.type == "tool_use" for b in content) else "end_turn",
             content=content,
             model=model,
             input_tokens=response.usage.input_tokens,
@@ -353,14 +426,23 @@ class OpenAICompatProvider:
 
         if msg.tool_calls:
             for tc in msg.tool_calls:
+                input_dict, arg_error = parse_tool_arguments(
+                    tc.function.arguments, tc.function.name, choice.finish_reason,
+                )
                 content.append(ContentBlock(
                     type="tool_use",
                     id=tc.id,
                     name=tc.function.name,
-                    input=json.loads(tc.function.arguments),
+                    input=input_dict,
+                    error=arg_error,
                 ))
 
-        stop_reason = "tool_use" if choice.finish_reason == "tool_calls" else "end_turn"
+        # A tool call truncated by max_tokens comes back with finish_reason
+        # "length", not "tool_calls", but still a tool_use turn, and the loop needs
+        # to see it as one so it can answer the malformed block and let the model
+        # retry rather than dropping the turn as an unexpected stop_reason.
+        has_tool_use = any(b.type == "tool_use" for b in content)
+        stop_reason = "tool_use" if (choice.finish_reason == "tool_calls" or has_tool_use) else "end_turn"
 
         return NormalizedResponse(
             stop_reason=stop_reason,
@@ -450,18 +532,30 @@ class OpenAICompatProvider:
             content.append(ContentBlock(type="text", text=full_text))
         for idx in sorted(tool_calls_raw):
             tc = tool_calls_raw[idx]
-            try:
-                input_dict = json.loads(tc["arguments"] or "{}")
-            except json.JSONDecodeError:
-                input_dict = {}
+            if not tc["id"] or not tc["name"]:
+                # Cut off before the call was even identified. There is no id to
+                # answer, and emitting a tool_use without one would make the next
+                # request invalid, so drop it and let the turn end as text.
+                log.warning(
+                    "Dropping incomplete streamed tool call (id=%r name=%r, finish_reason=%s)",
+                    tc["id"], tc["name"], finish_reason,
+                )
+                continue
+            # Not silently {}: an empty input dict would run the tool with its
+            # defaults, which for a destructive tool is worse than not running it.
+            input_dict, arg_error = parse_tool_arguments(
+                tc["arguments"], tc["name"], finish_reason,
+            )
             content.append(ContentBlock(
                 type="tool_use",
                 id=tc["id"],
                 name=tc["name"],
                 input=input_dict,
+                error=arg_error,
             ))
 
-        stop_reason = "tool_use" if finish_reason == "tool_calls" else "end_turn"
+        has_tool_use = any(b.type == "tool_use" for b in content)
+        stop_reason = "tool_use" if (finish_reason == "tool_calls" or has_tool_use) else "end_turn"
         return NormalizedResponse(
             stop_reason=stop_reason,
             content=content,
