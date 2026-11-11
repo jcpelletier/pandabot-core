@@ -43,6 +43,11 @@ __all__ = [
     "in_flight_story", "next_story_number",
     "BUILDER_JULES", "story_builder_ref",
     "record_escalation", "escalations_for_story", "escalations_for_goal",
+    "SOURCE_CI", "SOURCE_PREFILTER", "SOURCE_QA", "SOURCE_DRIVER", "ALL_SOURCES",
+    "ATTR_BUILD", "ATTR_GATE", "ATTR_INFRA", "ATTR_SPEC", "ALL_ATTRIBUTIONS",
+    "RESULT_PASS", "RESULT_FAIL", "RESULT_ERROR",
+    "record_verdict", "verdicts_for_story", "verdicts_for_goal", "has_verdict_ref",
+    "trailing_verdicts",
 ]
 
 # --- Builders ---------------------------------------------------------------
@@ -51,6 +56,30 @@ __all__ = [
 # harness builders later. Only the name is stored here: the builder protocol
 # itself lives in pandabot-dev, which is the only bot that dispatches builds.
 BUILDER_JULES = "jules"
+
+# --- Verdicts and failure attribution ---------------------------------------
+# Every verdict on a story round (CI, the DeepSeek pre-filter, PandaQA, or the driver
+# itself noticing a stall) is kept with its attribution: what the failure is about.
+# Only ``build`` failures spend a builder's feedback rounds; ``gate``, ``infrastructure``
+# and ``spec`` failures retry or block instead (pandabot-dev docs/builder-tiers.md 4.5).
+SOURCE_CI = "ci"
+SOURCE_PREFILTER = "prefilter"
+SOURCE_QA = "qa"
+SOURCE_DRIVER = "driver"          # the goal driver's own findings (a stalled hand-off)
+ALL_SOURCES = [SOURCE_CI, SOURCE_PREFILTER, SOURCE_QA, SOURCE_DRIVER]
+
+ATTR_BUILD = "build"              # the builder's code: spends a feedback round
+ATTR_GATE = "gate"                # the QA gate cannot judge it: block with a reason
+ATTR_INFRA = "infrastructure"     # tooling failed: retry with backoff, then block
+ATTR_SPEC = "spec"                # the story itself is wrong: block, route to Plan
+ALL_ATTRIBUTIONS = [ATTR_BUILD, ATTR_GATE, ATTR_INFRA, ATTR_SPEC]
+
+RESULT_PASS = "pass"
+RESULT_FAIL = "fail"
+RESULT_ERROR = "error"
+
+# A verdict's text is kept as an excerpt: enough to audit the attribution, not a log.
+VERDICT_EXCERPT_CHARS = 2000
 
 # --- Story status-label vocabulary (full GitHub label strings) --------------
 STATUS_READY = "status: ready"
@@ -157,6 +186,28 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_goal_escalations_story "
             "ON goal_escalations (goal_id, story_number)"
+        )
+        # Additive (phase G): a new table only, so it is safe on a live scheduler.db and
+        # an older pandabot-dev that never reads it is unaffected.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS goal_verdicts (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                goal_id       INTEGER NOT NULL,
+                story_number  INTEGER NOT NULL,
+                source        TEXT    NOT NULL,
+                result        TEXT    NOT NULL DEFAULT 'fail',
+                attribution   TEXT    NOT NULL DEFAULT '',
+                signature     TEXT    NOT NULL DEFAULT '',
+                excerpt       TEXT    NOT NULL DEFAULT '',
+                ref           TEXT    NOT NULL DEFAULT '',
+                builder       TEXT    NOT NULL DEFAULT '',
+                feedback_round INTEGER NOT NULL DEFAULT 0,
+                created_at    TEXT    NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_goal_verdicts_story "
+            "ON goal_verdicts (goal_id, story_number)"
         )
 
 
@@ -386,6 +437,80 @@ def escalations_for_goal(goal_id: int) -> list[dict[str, Any]]:
             "SELECT * FROM goal_escalations WHERE goal_id = ? ORDER BY id", (goal_id,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Verdicts (one row per verdict on a story round, with its attribution)
+# ---------------------------------------------------------------------------
+
+def record_verdict(goal_id: int, story_number: int, source: str, result: str,
+                   attribution: str = "", excerpt: str = "", signature: str = "",
+                   ref: str = "", builder: str = "", feedback_round: int = 0) -> int:
+    """Keep one verdict: where it came from, pass/fail, what it was attributed to, the
+    signature that decided the attribution ('deepseek' or '' when none matched), and an
+    excerpt of its text. ``ref`` identifies the verdict at its source (a QA comment id,
+    a PR head sha) so the driver acts on each verdict once. ``feedback_round`` is the
+    story's build round count when the verdict arrived."""
+    init_db()
+    with _conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO goal_verdicts (goal_id, story_number, source, result, attribution, "
+            "signature, excerpt, ref, builder, feedback_round, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (goal_id, story_number, source, result, attribution, signature[:200],
+             (excerpt or "")[:VERDICT_EXCERPT_CHARS], ref, builder, int(feedback_round),
+             _now()),
+        )
+        return int(cur.lastrowid)
+
+
+def verdicts_for_story(goal_id: int, story_number: int,
+                       source: str | None = None) -> list[dict[str, Any]]:
+    """A story's verdicts, oldest first, optionally from one source."""
+    init_db()
+    sql = "SELECT * FROM goal_verdicts WHERE goal_id = ? AND story_number = ?"
+    args: list[Any] = [goal_id, story_number]
+    if source:
+        sql += " AND source = ?"
+        args.append(source)
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute(sql + " ORDER BY id", args).fetchall()]
+
+
+def verdicts_for_goal(goal_id: int) -> list[dict[str, Any]]:
+    """Every verdict on a goal's stories, oldest first (for reports and tuning)."""
+    init_db()
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM goal_verdicts WHERE goal_id = ? ORDER BY id", (goal_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def has_verdict_ref(goal_id: int, story_number: int, ref: str) -> bool:
+    """True if a verdict with this source ref was already recorded for the story."""
+    if not ref:
+        return False
+    init_db()
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM goal_verdicts WHERE goal_id = ? AND story_number = ? AND ref = ?",
+            (goal_id, story_number, ref),
+        ).fetchone()
+        return row is not None
+
+
+def trailing_verdicts(goal_id: int, story_number: int, attribution: str,
+                      source: str | None = None) -> int:
+    """How many of the story's most recent verdicts in a row carry ``attribution``
+    (the run of consecutive infrastructure failures, for retry limits). A verdict with
+    any other attribution or a pass ends the run."""
+    n = 0
+    for v in reversed(verdicts_for_story(goal_id, story_number, source)):
+        if v["attribution"] != attribution or v["result"] == RESULT_PASS:
+            break
+        n += 1
+    return n
 
 
 def in_flight_story(goal_id: int) -> dict[str, Any] | None:

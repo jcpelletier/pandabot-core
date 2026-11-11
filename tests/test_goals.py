@@ -196,3 +196,62 @@ def test_escalations_are_logged_in_order_per_story():
     assert story[1]["reason"] == "feedback limit reached"
     assert story[0]["created_at"]
     assert len(goals.escalations_for_goal(gid)) == 3
+
+
+# --- verdict record (builder tiers, phase G) ----------------------------------
+
+def test_verdict_table_is_added_to_a_live_db_without_touching_data(tmp_path, monkeypatch):
+    """Panda's scheduler.db predates goal_verdicts: init_db adds the table and leaves
+    every existing story row as it was (the migration is a CREATE TABLE only)."""
+    sub = tmp_path / "live"
+    sub.mkdir()
+    monkeypatch.setenv("PANDABOT_DATA_DIR", str(sub))
+    _old_schema_db(str(sub / "scheduler.db"))
+    goals.init_db()
+    goals.init_db()
+    assert goals.verdicts_for_story(1, 10) == []
+    run = goals.get_story_run(1, 10)
+    assert (run["status"], run["feedback_rounds"], run["pr_url"]) == (
+        goals.STATUS_IN_QA, 1, "http://pr/10")
+
+
+def test_record_verdict_round_trips_and_truncates_excerpt():
+    gid = goals.create_goal("o/game", 1)
+    vid = goals.record_verdict(gid, 19, goals.SOURCE_QA, goals.RESULT_FAIL,
+                               attribution=goals.ATTR_INFRA,
+                               excerpt="You've hit your session limit " + "x" * 5000,
+                               signature="hit your session limit", ref="comment:123",
+                               builder="jules", feedback_round=0)
+    assert vid > 0
+    [v] = goals.verdicts_for_story(gid, 19)
+    assert v["source"] == "qa"
+    assert v["attribution"] == "infrastructure"
+    assert v["signature"] == "hit your session limit"
+    assert len(v["excerpt"]) == goals.VERDICT_EXCERPT_CHARS
+    assert v["created_at"]
+    assert goals.has_verdict_ref(gid, 19, "comment:123")
+    assert not goals.has_verdict_ref(gid, 19, "comment:124")
+    assert not goals.has_verdict_ref(gid, 19, "")
+
+
+def test_verdicts_filter_by_source_and_goal():
+    gid = goals.create_goal("o/game", 1)
+    goals.record_verdict(gid, 5, goals.SOURCE_CI, goals.RESULT_FAIL, goals.ATTR_BUILD)
+    goals.record_verdict(gid, 5, goals.SOURCE_PREFILTER, goals.RESULT_FAIL, goals.ATTR_BUILD)
+    goals.record_verdict(gid, 6, goals.SOURCE_QA, goals.RESULT_PASS, goals.ATTR_BUILD)
+    assert [v["source"] for v in goals.verdicts_for_story(gid, 5)] == ["ci", "prefilter"]
+    assert len(goals.verdicts_for_story(gid, 5, goals.SOURCE_CI)) == 1
+    assert len(goals.verdicts_for_goal(gid)) == 3
+
+
+def test_trailing_verdicts_counts_the_current_run_only():
+    gid = goals.create_goal("o/game", 1)
+    infra = goals.ATTR_INFRA
+    goals.record_verdict(gid, 20, goals.SOURCE_QA, goals.RESULT_ERROR, infra)
+    goals.record_verdict(gid, 20, goals.SOURCE_QA, goals.RESULT_FAIL, goals.ATTR_BUILD)
+    goals.record_verdict(gid, 20, goals.SOURCE_QA, goals.RESULT_ERROR, infra)
+    goals.record_verdict(gid, 20, goals.SOURCE_QA, goals.RESULT_ERROR, infra)
+    assert goals.trailing_verdicts(gid, 20, infra) == 2
+    assert goals.trailing_verdicts(gid, 20, infra, source=goals.SOURCE_CI) == 0
+    goals.record_verdict(gid, 20, goals.SOURCE_QA, goals.RESULT_PASS, goals.ATTR_BUILD)
+    assert goals.trailing_verdicts(gid, 20, infra) == 0
