@@ -225,7 +225,15 @@ async def announce_startup(
         msg += f"\n{entry}"
     if extra:
         msg += f"\n{extra}"
-    await send_with_retry(channel, msg)
+    # A long changelog entry can push the message past Discord's 2000-char limit.
+    # Send it in chunks, and never let the announcement raise: callers run it
+    # inside on_ready, where an exception skips whatever setup follows it.
+    try:
+        for chunk in split_message(msg):
+            for i in range(0, len(chunk), DISCORD_MSG_LIMIT):
+                await send_with_retry(channel, chunk[i:i + DISCORD_MSG_LIMIT])
+    except Exception:
+        log.exception("Startup announcement failed")
 
 
 # ---------------------------------------------------------------------------

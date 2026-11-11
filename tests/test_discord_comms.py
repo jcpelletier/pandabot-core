@@ -109,3 +109,46 @@ def test_confirmation_manager_save_replaces_prior_batch():
     assert result is not None
     assert len(result) == 2
     assert all(a["name"] == "move" for a in result)
+
+
+def _run_announce(tmp_path, entry, channel, monkeypatch):
+    import asyncio
+    from pandabot_core import discord_comms
+
+    (tmp_path / "VERSION").write_text("7\n")
+    (tmp_path / "CHANGELOG.md").write_text(f"# Changelog\n\n## v7\n\n{entry}\n\n## v6\n\n- old\n")
+
+    async def fake_send(ch, content, retries=3):
+        await ch.send(content)
+
+    monkeypatch.setattr(discord_comms, "send_with_retry", fake_send)
+    asyncio.run(discord_comms.announce_startup(channel, str(tmp_path), extra="Backend: x"))
+
+
+class _Channel:
+    def __init__(self, fail=False):
+        self.sent, self.fail = [], fail
+
+    async def send(self, content):
+        if self.fail:
+            raise RuntimeError("400 Bad Request")
+        assert len(content) <= 2000
+        self.sent.append(content)
+
+
+def test_announce_startup_splits_long_changelog(tmp_path, monkeypatch):
+    entry = "\n".join(f"- item {i}: " + "x" * 300 for i in range(10))
+    ch = _Channel()
+    _run_announce(tmp_path, entry, ch, monkeypatch)
+    assert len(ch.sent) >= 2
+    assert "Backend: x" in ch.sent[-1]
+
+
+def test_announce_startup_cuts_a_single_overlong_line(tmp_path, monkeypatch):
+    ch = _Channel()
+    _run_announce(tmp_path, "- " + "y" * 4500, ch, monkeypatch)
+    assert len(ch.sent) >= 3
+
+
+def test_announce_startup_never_raises(tmp_path, monkeypatch):
+    _run_announce(tmp_path, "- short", _Channel(fail=True), monkeypatch)
