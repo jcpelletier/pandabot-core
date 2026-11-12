@@ -211,13 +211,22 @@ async def announce_startup(
     channel: "discord.abc.Messageable",
     bot_dir: str,
     extra: str = "",
+    model_label: str | None = None,
 ) -> None:
-    """Post startup message (version + changelog entry + extra) to channel."""
+    """Post startup message (version + changelog entry + extra) to channel.
+
+    The "powered by" label comes from core's model profiles. A bot that runs its own
+    LLM provider instead (PandaQA) passes `model_label`, since core's profiles would
+    otherwise describe a default it never uses.
+    """
     from pandabot_core.identity import startup_message
-    from pandabot_core.llm.provider import get_active_model_label
     version = _read_version(bot_dir)
     msg = startup_message(version)
-    label = get_active_model_label()
+    if model_label is None:
+        from pandabot_core.llm.provider import get_active_model_label
+        label = get_active_model_label()
+    else:
+        label = model_label
     if label:
         msg += f" — powered by {label}"
     entry = _read_changelog_entry(bot_dir, version)

@@ -152,3 +152,23 @@ def test_announce_startup_cuts_a_single_overlong_line(tmp_path, monkeypatch):
 
 def test_announce_startup_never_raises(tmp_path, monkeypatch):
     _run_announce(tmp_path, "- short", _Channel(fail=True), monkeypatch)
+
+
+def test_announce_startup_uses_a_given_model_label(tmp_path, monkeypatch):
+    import asyncio
+    from pandabot_core import discord_comms
+    from pandabot_core.llm import provider
+
+    (tmp_path / "VERSION").write_text("7\n")
+    sent = []
+
+    async def fake_send(ch, content, retries=3):
+        sent.append(content)
+
+    monkeypatch.setattr(discord_comms, "send_with_retry", fake_send)
+    monkeypatch.setattr(provider, "get_active_model_label", lambda: "claude-haiku-4-5")
+    asyncio.run(discord_comms.announce_startup(object(), str(tmp_path), model_label="deepseek-v4-flash"))
+    assert "powered by deepseek-v4-flash" in sent[0] and "haiku" not in sent[0]
+    sent.clear()
+    asyncio.run(discord_comms.announce_startup(object(), str(tmp_path)))
+    assert "powered by claude-haiku-4-5" in sent[0]
