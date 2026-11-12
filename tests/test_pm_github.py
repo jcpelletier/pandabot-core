@@ -192,3 +192,30 @@ def test_add_sub_issue_links_across_repos(calls):
 def test_add_sub_issue_disabled(monkeypatch):
     monkeypatch.setenv("ENABLE_GITHUB_PM", "false")
     assert gh.add_sub_issue("A", 1, "B", 2) == "GitHub integration is not enabled."
+
+
+def test_token_prefers_the_bots_github_app(monkeypatch):
+    from pandabot_core import github_app
+    monkeypatch.setattr(github_app, "get_token", lambda: "ghs_app")
+    assert gh._token() == "ghs_app"
+    monkeypatch.setattr(github_app, "get_token", lambda: "")
+    assert gh._token() == "tok"                      # falls back to GITHUB_TOKEN
+
+
+def test_list_repos_without_allowlist_lists_the_apps_installation(monkeypatch, calls):
+    from pandabot_core import github_app
+    monkeypatch.setattr(github_app, "configured", lambda: True)
+    monkeypatch.setattr(github_app, "get_token", lambda: "ghs_app")
+    calls.queue.append({"repositories": [{"full_name": "jcpelletier/a"},
+                                         {"full_name": "jcpelletier/b"}]})
+    out = json.loads(gh.list_repos())
+    assert [r["repo"] for r in out] == ["jcpelletier/a", "jcpelletier/b"]
+    assert calls[0]["url"].endswith("/installation/repositories?per_page=100")
+    assert calls[0]["headers"]["Authorization"] == "Bearer ghs_app"
+
+
+def test_list_repos_without_allowlist_or_app_lists_owned_repos(calls):
+    calls.queue.append([{"full_name": "jcpelletier/x"}])
+    out = json.loads(gh.list_repos())
+    assert out == [{"repo": "jcpelletier/x"}]
+    assert "/user/repos" in calls[0]["url"]

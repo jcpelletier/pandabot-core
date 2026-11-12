@@ -50,7 +50,10 @@ __all__ = [
 
 
 def _token() -> str:
-    return os.environ.get("GITHUB_TOKEN", "")
+    """The bot's GitHub App installation token when its App is configured (refreshed
+    as needed, pandabot_core.github_app), else a static GITHUB_TOKEN."""
+    from pandabot_core import github_app
+    return github_app.get_token() or os.environ.get("GITHUB_TOKEN", "")
 
 
 def _owner() -> str:
@@ -116,10 +119,21 @@ def list_repos() -> str:
     if not _enabled():
         return "GitHub integration is not enabled."
     repos = _repos_allowlist()
-    if not repos:
-        return ("No repos configured. Set GITHUB_REPOS to a comma-separated list "
-                "(short names resolve against GITHUB_OWNER).")
-    return json.dumps([{"repo": _full(r)} for r in repos], indent=2)
+    if repos:
+        return json.dumps([{"repo": _full(r)} for r in repos], indent=2)
+    # GITHUB_REPOS is optional: without it, list what the credential can reach (an App
+    # installed on "All repositories" covers every repo on the account).
+    try:
+        from pandabot_core import github_app
+        if github_app.configured():
+            data = _gh("GET", "/installation/repositories?per_page=100")
+            names = [r.get("full_name") for r in data.get("repositories", [])]
+        else:
+            data = _gh("GET", "/user/repos?per_page=100&affiliation=owner")
+            names = [r.get("full_name") for r in data]
+    except Exception as exc:
+        return f"Could not list repos ({exc}). Set GITHUB_REPOS to list them explicitly."
+    return json.dumps([{"repo": n} for n in names if n], indent=2)
 
 
 def get_repo(repo: str) -> str:
