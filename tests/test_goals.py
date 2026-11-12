@@ -255,3 +255,16 @@ def test_trailing_verdicts_counts_the_current_run_only():
     assert goals.trailing_verdicts(gid, 20, infra, source=goals.SOURCE_CI) == 0
     goals.record_verdict(gid, 20, goals.SOURCE_QA, goals.RESULT_PASS, goals.ATTR_BUILD)
     assert goals.trailing_verdicts(gid, 20, infra) == 0
+
+
+def test_paused_goals_are_left_out_of_the_drivers_list():
+    from pandabot_core import goals as g
+    a = g.create_goal("o/a", 1)
+    b = g.create_goal("o/b", 2)
+    g.set_goal_state(b, g.GOAL_PAUSED)
+    assert [x["id"] for x in g.active_goals()] == [a]
+    assert {x["id"] for x in g.active_goals(include_paused=True)} == {a, b}
+    g.set_goal_state(b, g.GOAL_ACTIVE)
+    assert {x["id"] for x in g.active_goals()} == {a, b}
+    g.complete_goal(a)
+    assert [x["id"] for x in g.active_goals(include_paused=True)] == [b]

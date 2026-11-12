@@ -35,7 +35,7 @@ __all__ = [
     "DESIGN_IN_REVIEW", "DESIGN_APPROVED", "DESIGN_BLOCKED", "ALL_DESIGN_LABELS",
     "ART_IN_QA", "ART_APPROVED", "ART_CHANGES_REQUESTED", "ART_BLOCKED",
     "ALL_ART_LABELS",
-    "GOAL_INTAKE", "GOAL_ACTIVE", "GOAL_COMPLETE",
+    "GOAL_INTAKE", "GOAL_ACTIVE", "GOAL_PAUSED", "GOAL_COMPLETE",
     "init_db", "create_goal", "get_goal", "active_goals",
     "set_goal_state", "complete_goal",
     "upsert_story_run", "get_story_run", "story_runs_for_goal",
@@ -122,6 +122,7 @@ ALL_DESIGN_LABELS = [DESIGN_IN_REVIEW, DESIGN_APPROVED, DESIGN_BLOCKED]
 # --- Goal-level state (epic) ------------------------------------------------
 GOAL_INTAKE = "intake"      # awaiting QA capability review / skill
 GOAL_ACTIVE = "active"      # driver is working stories
+GOAL_PAUSED = "paused"      # held by the operator: the driver and the build poller leave it alone
 GOAL_COMPLETE = "complete"  # every story done
 
 
@@ -282,12 +283,15 @@ def get_goal(goal_id: int) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
-def active_goals() -> list[dict[str, Any]]:
-    """Every goal the driver should still be working (not complete)."""
+def active_goals(include_paused: bool = False) -> list[dict[str, Any]]:
+    """Every goal the driver should still be working: not complete, and not paused
+    unless ``include_paused`` (status listings want paused goals too)."""
     init_db()
+    skip = (GOAL_COMPLETE,) if include_paused else (GOAL_COMPLETE, GOAL_PAUSED)
+    marks = ",".join("?" for _ in skip)
     with _conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM goals WHERE state != ? ORDER BY id", (GOAL_COMPLETE,)
+            f"SELECT * FROM goals WHERE state NOT IN ({marks}) ORDER BY id", skip
         ).fetchall()
         return [dict(r) for r in rows]
 
