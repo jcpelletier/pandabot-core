@@ -182,8 +182,12 @@ def test_contrast_is_declared_unchecked_rather_than_passed():
 def test_the_pack_runs_against_the_real_device():
     """A tree-shaped check passes its own fixtures and then meets a real
     Compose dump, where nothing has a resource id and labels live one node down."""
+    import shutil
+
     from pandabot_core.active_qa.drivers.android import AndroidDriver, RemoteAdb
 
+    if shutil.which("wsl") is None:     # CI runners, and anything but the dev box
+        pytest.skip("no wsl here, so the test handset cannot be reached")
     adb = RemoteAdb("genesis@192.168.1.100", serial="192.168.1.172:5555",
                     ssh=("wsl", "ssh", "-o", "ConnectTimeout=15"))
     rc, out, _err = adb.run(["get-state"], timeout=25)

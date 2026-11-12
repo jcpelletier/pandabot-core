@@ -20,6 +20,8 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest pytest-asyncio
+          # Optional at runtime (active_qa.brief degrades without it), needed by its tests.
+          pip install pyyaml
 
       - name: Run tests
         run: python -m pytest tests/ -v
