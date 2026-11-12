@@ -66,10 +66,18 @@ the promotion step are retired (see PandaEcosystem epic #9).
 
 ## Deploying changes
 
-Deployment is handled automatically by GitHub Actions on push to `main` (server
-pull + restart of `discord-bot` and `pandaqa`, then a health check). See the
-parent CLAUDE.md for SSH commands
-and server paths.
+Deployed by **panda-deployer** on panda (PandaEcosystem `deployer/README.md`): it
+pulls `main` every 10 minutes with its own read-only token, restarts every bot that imports core,
+health-checks, and rolls back on failure. GitHub Actions never connects to panda
+(no Tailscale or SSH secrets). To ship now instead of waiting:
+
+```bash
+git push origin main
+bash ../deployer/deploy-now.sh pandabot-core     # or ask PandaBot-Dev: "deploy pandabot-core now"
+```
+
+The deployer only deploys a core commit once its `Test` workflow has passed on that
+commit (`test.yml` runs on pushes to `main` as well as PRs).
 
 ## Running tests
 
