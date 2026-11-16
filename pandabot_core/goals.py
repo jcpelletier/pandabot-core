@@ -5,11 +5,11 @@ Persistent store for **long-term goals** — a GitHub epic that the bot team wor
 to completion incrementally, one story (sub-issue) at a time.
 
 A goal survives a bot restart: unlike pandabot-dev's in-memory ``_active_sessions``
-dict (which tracks single in-flight Jules sessions and is lost on restart), the goal
+dict (which tracks single in-flight builds and is lost on restart), the goal
 driver records its progress here so it can resume mid-goal. GitHub remains the source
 of truth for the work items themselves (epic + story sub-issues + their ``status:``
 labels); this table is the driver's local bookkeeping — which story is in flight, the
-Jules session driving it, feedback rounds spent, and the last QA verdict.
+builder and build driving it, feedback rounds spent, and the last QA verdict.
 
 DB: ``cfg.db_path("scheduler.db")`` — the same SQLite file the scheduler uses, so set
 ``PANDABOT_DATA_DIR`` to control its location.
@@ -41,7 +41,7 @@ __all__ = [
     "upsert_story_run", "get_story_run", "story_runs_for_goal",
     "set_story_status", "record_dispatch", "record_qa_verdict",
     "in_flight_story", "next_story_number",
-    "BUILDER_JULES", "story_builder_ref",
+    "story_builder_ref",
     "record_escalation", "escalations_for_story", "escalations_for_goal",
     "SOURCE_CI", "SOURCE_PREFILTER", "SOURCE_QA", "SOURCE_DRIVER", "ALL_SOURCES",
     "ATTR_BUILD", "ATTR_GATE", "ATTR_INFRA", "ATTR_SPEC", "ALL_ATTRIBUTIONS",
@@ -51,11 +51,10 @@ __all__ = [
 ]
 
 # --- Builders ---------------------------------------------------------------
-# The builder that writes a story's code. Today every story is built by Jules;
-# PandaBot-Dev's builder tiers (pandabot-dev ``docs/builder-tiers.md``) add
-# harness builders later. Only the name is stored here: the builder protocol
-# itself lives in pandabot-dev, which is the only bot that dispatches builds.
-BUILDER_JULES = "jules"
+# The builder that writes a story's code (pandabot-dev ``docs/builder-tiers.md``):
+# ``harness:deepseek`` today, ``harness:desktop`` after its phase 5. Only the name
+# is stored here: the builder protocol itself lives in pandabot-dev, which is the
+# only bot that dispatches builds. Old rows may name the retired ``jules``.
 
 # --- Verdicts and failure attribution ---------------------------------------
 # Every verdict on a story round (CI, the DeepSeek pre-filter, PandaQA, or the driver
@@ -96,7 +95,7 @@ ALL_STATUSES = [
 ]
 
 # --- Art-loop sub-state (parallel ``art:`` label) ---------------------------
-# A story that needs assets goes through an art phase BEFORE its Jules build.
+# A story that needs assets goes through an art phase BEFORE its build.
 # The art sub-state rides a separate ``art:`` label so it never clobbers the
 # story's ``status:`` label (which stays ``ready`` until the assets are in and
 # the build is dispatched). PandaQA writes the verdict; PandaBot-Dev reads it.
@@ -163,7 +162,8 @@ def init_db() -> None:
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
                 goal_id           INTEGER NOT NULL,
                 story_number      INTEGER NOT NULL,
-                jules_session_id  TEXT    NOT NULL DEFAULT '',
+                builder           TEXT    NOT NULL DEFAULT '',
+                builder_ref       TEXT    NOT NULL DEFAULT '',
                 pr_url            TEXT    NOT NULL DEFAULT '',
                 status            TEXT    NOT NULL DEFAULT 'status: ready',
                 feedback_rounds   INTEGER NOT NULL DEFAULT 0,
@@ -213,28 +213,30 @@ def init_db() -> None:
 
 
 def _migrate_story_runs_builder(conn: sqlite3.Connection) -> None:
-    """Additive migration: give ``goal_story_runs`` a ``builder`` and ``builder_ref``.
+    """Bring an older ``goal_story_runs`` up to date. Safe on every ``init_db``.
 
-    Rows written before builders existed were all Jules builds, so they read as
-    builder ``jules`` (the column default) with ``builder_ref`` copied from
-    ``jules_session_id``. ``jules_session_id`` stays and is still written for Jules
-    builds, so code that only knows the old column keeps working for one release.
-    Safe to run on every ``init_db``: the ALTERs are guarded and the backfill only
-    touches rows whose ``builder_ref`` is still empty."""
+    1. Add ``builder`` and ``builder_ref`` to a table created before builders existed.
+    2. Retire ``jules_session_id`` (builder-tiers phase 7): copy any id it still holds
+       into ``builder_ref`` (those rows were Jules builds), then drop the column. On a
+       SQLite too old to drop a column (before 3.35) it stays, unread and unwritten."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(goal_story_runs)")}
     if "builder" not in cols:
         conn.execute(
-            "ALTER TABLE goal_story_runs ADD COLUMN builder TEXT NOT NULL DEFAULT 'jules'"
+            "ALTER TABLE goal_story_runs ADD COLUMN builder TEXT NOT NULL DEFAULT ''"
         )
     if "builder_ref" not in cols:
         conn.execute(
             "ALTER TABLE goal_story_runs ADD COLUMN builder_ref TEXT NOT NULL DEFAULT ''"
         )
-    conn.execute(
-        "UPDATE goal_story_runs SET builder_ref = jules_session_id "
-        "WHERE builder_ref = '' AND jules_session_id != '' AND builder = ?",
-        (BUILDER_JULES,),
-    )
+    if "jules_session_id" in cols:
+        conn.execute(
+            "UPDATE goal_story_runs SET builder_ref = jules_session_id, builder = 'jules' "
+            "WHERE builder_ref = '' AND jules_session_id != ''"
+        )
+        try:
+            conn.execute("ALTER TABLE goal_story_runs DROP COLUMN jules_session_id")
+        except sqlite3.OperationalError:
+            pass
 
 
 def _conn() -> sqlite3.Connection:
@@ -252,7 +254,7 @@ def create_goal(repo: str, epic_number: int, title: str = "",
                 base_branch: str = "main") -> int:
     """Register a goal (or return the existing id for the same repo+epic).
 
-    base_branch is the branch Jules targets for this goal's stories (the repo's
+    base_branch is the branch builds target for this goal's stories (the repo's
     default branch — resolved by the caller), not assumed to be 'staging'."""
     init_db()
     now = _now()
@@ -312,23 +314,10 @@ def complete_goal(goal_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def upsert_story_run(goal_id: int, story_number: int, **fields: Any) -> int:
-    """Create or update the run record for one story. Unknown fields are ignored.
-
-    ``jules_session_id`` and ``builder_ref`` are kept in step for Jules builds: a
-    caller that still writes only ``jules_session_id`` (pre-builder code) also sets
-    ``builder_ref`` and ``builder = 'jules'``, and a ``builder_ref`` written with
-    ``builder = 'jules'`` is mirrored into ``jules_session_id`` so readers of the old
-    column see it."""
+    """Create or update the run record for one story. Unknown fields are ignored."""
     init_db()
-    allowed = {"jules_session_id", "pr_url", "status", "feedback_rounds", "qa_verdict",
-               "builder", "builder_ref"}
+    allowed = {"pr_url", "status", "feedback_rounds", "qa_verdict", "builder", "builder_ref"}
     sets = {k: v for k, v in fields.items() if k in allowed}
-    if "jules_session_id" in sets and "builder_ref" not in sets:
-        sets["builder_ref"] = sets["jules_session_id"]
-        sets.setdefault("builder", BUILDER_JULES)
-    elif ("builder_ref" in sets and sets.get("builder") == BUILDER_JULES
-          and "jules_session_id" not in sets):
-        sets["jules_session_id"] = sets["builder_ref"]
     now = _now()
     with _conn() as conn:
         row = conn.execute(
@@ -343,6 +332,9 @@ def upsert_story_run(goal_id: int, story_number: int, **fields: Any) -> int:
                     (*sets.values(), now, row["id"]),
                 )
             return int(row["id"])
+        # A new row names no builder until it is dispatched (an older table still
+        # carries the column default 'jules', so say so explicitly).
+        sets.setdefault("builder", "")
         cols = ["goal_id", "story_number", "updated_at", *sets.keys()]
         vals = [goal_id, story_number, now, *sets.values()]
         placeholders = ", ".join("?" for _ in cols)
@@ -377,25 +369,17 @@ def set_story_status(goal_id: int, story_number: int, status: str) -> None:
     upsert_story_run(goal_id, story_number, status=status)
 
 
-def record_dispatch(goal_id: int, story_number: int, builder_ref: str,
-                    builder: str = BUILDER_JULES) -> None:
-    """Mark a story as dispatched to a builder and in progress.
-
-    ``builder_ref`` is the builder's handle on the build (the Jules session id for
-    Jules). It comes before ``builder`` so the pre-builder call
-    ``record_dispatch(goal_id, story, session_id)`` still records a Jules build.
-    For a non-Jules builder ``jules_session_id`` is cleared, so a stale Jules id
-    from an earlier attempt is never mistaken for the live build."""
-    fields: dict[str, Any] = {"builder": builder, "builder_ref": builder_ref,
-                              "status": STATUS_IN_PROGRESS}
-    fields["jules_session_id"] = builder_ref if builder == BUILDER_JULES else ""
-    upsert_story_run(goal_id, story_number, **fields)
+def record_dispatch(goal_id: int, story_number: int, builder_ref: str, *,
+                    builder: str) -> None:
+    """Mark a story as dispatched to ``builder`` and in progress. ``builder_ref`` is
+    the builder's handle on the build (the harness job id)."""
+    upsert_story_run(goal_id, story_number, builder=builder, builder_ref=builder_ref,
+                     status=STATUS_IN_PROGRESS)
 
 
 def story_builder_ref(run: dict[str, Any]) -> str:
-    """The builder ref of a story run, falling back to ``jules_session_id`` for a row
-    read before the builder columns were backfilled."""
-    return run.get("builder_ref") or run.get("jules_session_id") or ""
+    """The builder ref of a story run ('' when it was never dispatched)."""
+    return run.get("builder_ref") or ""
 
 
 def record_qa_verdict(goal_id: int, story_number: int, verdict: str, status: str) -> None:
