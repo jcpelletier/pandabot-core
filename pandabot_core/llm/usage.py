@@ -12,7 +12,7 @@ import sqlite3
 
 from pandabot_core.config import cfg
 
-__all__ = ["init_db", "log_call", "query_usage", "cost_usd"]
+__all__ = ["init_db", "log_call", "query_usage", "cost_usd", "story_usage"]
 
 # USD per million tokens (input_price, output_price)
 _PRICING: dict[str, tuple[float, float]] = {
@@ -59,10 +59,16 @@ def init_db() -> None:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS llm_usage_ts   ON llm_usage(ts)")
         conn.execute("CREATE INDEX IF NOT EXISTS llm_usage_conv ON llm_usage(conversation_id)")
-        try:
-            conn.execute("ALTER TABLE llm_usage ADD COLUMN provider TEXT NOT NULL DEFAULT 'anthropic'")
-        except sqlite3.OperationalError:
-            pass
+        # builder: the builder a call worked for ('harness:deepseek', 'harness:desktop'),
+        # '' for calls that are not a build. story: the goal story the call was about, or
+        # NULL. The tier follows from the builder name (builder-tiers phase 6).
+        for column in ("provider TEXT NOT NULL DEFAULT 'anthropic'",
+                       "builder TEXT NOT NULL DEFAULT ''",
+                       "story INTEGER"):
+            try:
+                conn.execute(f"ALTER TABLE llm_usage ADD COLUMN {column}")
+            except sqlite3.OperationalError:
+                pass
 
 
 def log_call(
@@ -73,20 +79,54 @@ def log_call(
     user_message: str,
     context: str = "main",
     provider: str = "anthropic",
+    builder: str = "",
+    story: "int | None" = None,
 ) -> None:
-    """Record one API call. Never raises."""
+    """Record one API call. Never raises. ``builder`` and ``story`` tag goal work, so a
+    goal's spend can be reported per story and per builder (``story_usage``)."""
     cost = cost_usd(model, input_tokens, output_tokens, provider=provider)
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         with sqlite3.connect(_db()) as conn:
             conn.execute(
                 "INSERT INTO llm_usage "
-                "(ts, conversation_id, model, input_tokens, output_tokens, cost_usd, user_message, context, provider) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (ts, conversation_id, model, input_tokens, output_tokens, cost, user_message[:500], context, provider),
+                "(ts, conversation_id, model, input_tokens, output_tokens, cost_usd, user_message, "
+                "context, provider, builder, story) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (ts, conversation_id, model, input_tokens, output_tokens, cost, user_message[:500],
+                 context, provider, builder or "", story),
             )
     except Exception:
         pass
+
+
+def story_usage(context: str) -> dict:
+    """Spend under one context (``goal:<id>``) per story: ``{story: {"builders": [...],
+    "runs": n, "calls": n, "in_tokens": n, "out_tokens": n, "cost_usd": x}}``.
+
+    ``runs`` counts build runs (rows with a builder); ``calls`` counts every row,
+    reviews and guards included. Rows without a story are under the key ``None``.
+    Builders are listed in the order they first appear. Returns {} on any error."""
+    out: dict = {}
+    try:
+        with sqlite3.connect(_db()) as conn:
+            rows = conn.execute(
+                "SELECT story, builder, input_tokens, output_tokens, cost_usd FROM llm_usage "
+                "WHERE context = ? ORDER BY id", (context,)).fetchall()
+    except Exception:
+        return {}
+    for story, builder, tin, tout, cost in rows:
+        s = out.setdefault(story, {"builders": [], "runs": 0, "calls": 0,
+                                   "in_tokens": 0, "out_tokens": 0, "cost_usd": 0.0})
+        s["calls"] += 1
+        s["in_tokens"] += int(tin or 0)
+        s["out_tokens"] += int(tout or 0)
+        s["cost_usd"] += float(cost or 0)
+        if builder:
+            s["runs"] += 1
+            if builder not in s["builders"]:
+                s["builders"].append(builder)
+    return out
 
 
 def query_usage(action: str = "recent", days: int = 30, limit: int = 20) -> str:

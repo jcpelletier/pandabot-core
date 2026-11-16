@@ -23,7 +23,7 @@ All the bots import from it — **Pandabot**, **Pandabot-QA**, **Pandabot-Dev**,
 | `pandabot_core.scheduler` | functions | SQLite-backed task scheduler: one_shot, condition_check, recurring |
 | `pandabot_core.llm.provider` | `get_provider()`, `get_provider_name()` | Anthropic + DeepSeek abstraction; reads `LLM_PROVIDER`, `LLM_UPGRADE_MODEL` |
 | `pandabot_core.llm.loop` | `run_claude_loop()` | Synchronous agentic loop — 25-round limit, upgrade model for `manage_schedule`, `on_confirm` callback for confirmation side-effects |
-| `pandabot_core.llm.usage` | `log_call()`, `query_usage()`, `cost_usd()` | Token/cost logging to `scheduler.db`; pricing table in `_PRICING` dict |
+| `pandabot_core.llm.usage` | `log_call()`, `query_usage()`, `cost_usd()`, `story_usage()` | Token/cost logging to `scheduler.db`; pricing table in `_PRICING` dict. Rows carry an optional `builder` and goal `story` (builder-tiers phase 6); `story_usage("goal:<id>")` totals a goal's spend per story |
 | `pandabot_core.discord_comms` | `keep_typing()`, `split_message()`, `send_with_retry()`, `build_history()`, `ConfirmationManager`, `WebhookServer` | Discord utilities; discord.py import is lazy (TYPE_CHECKING only) so tests work without discord installed |
 | `pandabot_core.identity` | `build_system_prompt()`, `startup_message()`, `bot_name()`, `bot_emoji()` | System prompt assembly from env vars and feature flags |
 | `pandabot_core.telemetry` | `ai_event()`, `ai_trace()` | Fire-and-forget App Insights via daemon threads; silently disabled if `APPINSIGHTS_IKEY` unset |
