@@ -24,6 +24,7 @@ All the bots import from it — **Pandabot**, **Pandabot-QA**, **Pandabot-Dev**,
 | `pandabot_core.llm.provider` | `get_provider()`, `get_provider_name()` | Anthropic + DeepSeek abstraction; reads `LLM_PROVIDER`, `LLM_UPGRADE_MODEL` |
 | `pandabot_core.llm.loop` | `run_claude_loop()` | Synchronous agentic loop — 25-round limit, upgrade model for `manage_schedule`, `on_confirm` callback for confirmation side-effects |
 | `pandabot_core.llm.usage` | `log_call()`, `query_usage()`, `cost_usd()`, `story_usage()` | Token/cost logging to `scheduler.db`; pricing table in `_PRICING` dict. Rows carry an optional `builder` and goal `story` (builder-tiers phase 6); `story_usage("goal:<id>")` totals a goal's spend per story |
+| `pandabot_core.llm.desktop` | `client()`, `DesktopClient`, `DesktopUnavailable` | Batch calls on the desktop's local model (Qwen3.8) through the PandaLocal-LLM arbiter's LAN listener: takes, renews and releases a lease around a burst of calls, and raises `DesktopUnavailable` on any refusal so the caller falls back. Batch clients on one model share it and take turns. Off unless `DESKTOP_LLM_URL` and `PANDA_LAN_KEY` are set. Standard library only |
 | `pandabot_core.discord_comms` | `keep_typing()`, `split_message()`, `send_with_retry()`, `build_history()`, `ConfirmationManager`, `WebhookServer` | Discord utilities; discord.py import is lazy (TYPE_CHECKING only) so tests work without discord installed |
 | `pandabot_core.identity` | `build_system_prompt()`, `startup_message()`, `bot_name()`, `bot_emoji()` | System prompt assembly from env vars and feature flags |
 | `pandabot_core.telemetry` | `ai_event()`, `ai_trace()` | Fire-and-forget App Insights via daemon threads; silently disabled if `APPINSIGHTS_IKEY` unset |
@@ -117,3 +118,4 @@ absent from core or stubbed by the lazy import pattern.
 | `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY_PATH` | `github_app`, `pm.github` | The bot's GitHub App; when set, `pm.github` authenticates as the App |
 | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` | `pm.github` | Fallback static token when no App is set; owner defaults to `jcpelletier`; `GITHUB_REPOS` is optional (unset: `list_repos` lists what the App's installation can reach) |
 | `ENABLE_GITHUB_PM` | `pm.github` | Feature flag — enables the GitHub Issues adapter |
+| `DESKTOP_LLM_URL`, `PANDA_LAN_KEY`, `DESKTOP_LLM_MODEL`, `ENABLE_DESKTOP_LLM` | `llm.desktop` | The desktop's LAN listener, the shared LAN key, the profile (default `qwen38q3-100k`), and an off switch |
